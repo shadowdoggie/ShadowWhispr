@@ -55,27 +55,11 @@ public partial class MainWindow : Window
         _hotkey.Released += OnHotkeyReleased;
         _audio.RecordingFailed += (_, ex) => AppLog.Write("Audio recording failed", ex);
         _tones.PlaybackFailed += (_, ex) => AppLog.Write("Cue tone playback failed", ex);
-        SizeChanged += (_, _) => ApplyUiScale();
-    }
-
-    /// <summary>
-    /// Scales the whole interface up on larger surfaces so text stays readable on
-    /// 1440p and 4K. The window's height is in device-independent units, so this
-    /// already accounts for the Windows display-scaling setting: a high-resolution
-    /// screen left at a low OS scale reports a tall window and gets scaled up more.
-    /// </summary>
-    private void ApplyUiScale()
-    {
-        if (UiScale is null || ActualHeight <= 0) return;
-        var scale = Math.Clamp(ActualHeight / 900.0, 1.12, 1.8);
-        UiScale.ScaleX = scale;
-        UiScale.ScaleY = scale;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         AppLog.Write($"App started (version {typeof(MainWindow).Assembly.GetName().Version})");
-        ApplyUiScale();
         _lifetime = new CancellationTokenSource();
         _settings = _settingsService.Load();
         ApplySettingsToUi();

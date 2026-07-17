@@ -60,11 +60,6 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                       PanningMode="VerticalOnly">
             <Grid MaxWidth="980" Margin="34,28,34,30">
-                <!-- Scaled up on larger / higher-resolution surfaces so text stays
-                     readable on 1440p and 4K. Factor set in OnWindowSizeChanged. -->
-                <Grid.LayoutTransform>
-                    <ScaleTransform x:Name="UiScale" ScaleX="1" ScaleY="1" />
-                </Grid.LayoutTransform>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -304,6 +299,7 @@
                                         <RowDefinition Height="11" />
                                     </Grid.RowDefinitions>
                                     <TextBox x:Name="InstructionBox" Height="360" MinHeight="60" MaxHeight="360"
+                                             FontSize="16"
                                              AcceptsReturn="True" TextWrapping="Wrap"
                                              VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"
                                              TextChanged="SettingsChanged" />
@@ -347,6 +343,7 @@
                             </Border>
                         </Grid>
                         <TextBox x:Name="TranscriptBox" Grid.Row="1" Height="140" Margin="0,18,0,0"
+                                 FontSize="16"
                                  IsReadOnly="True" TextWrapping="Wrap" VerticalContentAlignment="Top"
                                  VerticalScrollBarVisibility="Auto" />
                     </Grid>
