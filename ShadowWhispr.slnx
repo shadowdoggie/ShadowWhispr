@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ShadowWhispr/ShadowWhispr.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ShadowWhispr.Tests/ShadowWhispr.Tests.csproj" />
+  </Folder>
+</Solution>
