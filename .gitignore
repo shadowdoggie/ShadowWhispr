@@ -26,3 +26,6 @@ __pycache__/
 *.token
 credentials.json
 secrets.json
+
+# Separate website repository checked out beside the app source
+/website/

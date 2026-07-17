@@ -55,17 +55,48 @@ jobs:
         shell: pwsh
         run: .\scripts\build-installer.ps1 -Version "${{ steps.version.outputs.version }}"
 
+      - name: Create installer checksum
+        id: installer
+        shell: pwsh
+        run: |
+          $setup = "build/installer/ShadowWhispr-Setup-${{ steps.version.outputs.version }}.exe"
+          $checksum = "$setup.sha256"
+          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $setup)" | Set-Content -LiteralPath $checksum -Encoding ascii
+          "setup=$setup" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "checksum=$checksum" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Add the Windows safety notice to the release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          $currentNotes = gh release view $tag --json body --jq .body
+          if ($currentNotes -notlike '*Unknown publisher*') {
+            $notice = @'
+          > [!IMPORTANT]
+          > **Windows may show “Unknown publisher”.** The official ShadowWhispr installer does not contain viruses or malware. This warning appears because the project does not use a paid code-signing certificate—not because Windows detected a threat. Download only the installer attached to this official release. A SHA-256 checksum is included for verification.
+          '@
+            $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+            "$notice`n`n$currentNotes" | Set-Content -LiteralPath $notesPath -Encoding utf8
+            gh release edit $tag --notes-file $notesPath
+          }
+
       - name: Upload the installer to the release
         if: github.event_name == 'release'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $setup = "build/installer/ShadowWhispr-Setup-${{ steps.version.outputs.version }}.exe"
-          gh release upload "${{ github.event.release.tag_name }}" "$setup" --clobber
+          gh release upload "${{ github.event.release.tag_name }}" `
+            "${{ steps.installer.outputs.setup }}" `
+            "${{ steps.installer.outputs.checksum }}" `
+            --clobber
 
       - name: Save the installer as a build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ShadowWhispr-Setup
-          path: build/installer/*.exe
+          path: build/installer/*
