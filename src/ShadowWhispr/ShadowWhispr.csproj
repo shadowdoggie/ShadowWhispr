@@ -8,6 +8,7 @@
     <ApplicationIcon />
     <AssemblyName>ShadowWhispr</AssemblyName>
     <RootNamespace>ShadowWhispr</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>

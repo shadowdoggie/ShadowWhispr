@@ -1,0 +1,42 @@
+<Window x:Class="ShadowWhispr.UpdatePromptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Update available"
+        Width="560" Height="540" MinWidth="460" MinHeight="380"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="CanResizeWithGrip">
+    <Border Margin="22">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel>
+                <TextBlock Text="UPDATE AVAILABLE" Foreground="{StaticResource GoldBrush}"
+                           FontSize="12" FontWeight="SemiBold" />
+                <TextBlock x:Name="TitleText" Text="ShadowWhispr" FontSize="22" FontWeight="SemiBold"
+                           Margin="0,5,0,0" />
+            </StackPanel>
+
+            <TextBlock Grid.Row="1" Text="What's new" Foreground="{StaticResource MutedBrush}"
+                       FontSize="13" FontWeight="SemiBold" Margin="0,18,0,8" />
+
+            <TextBox Grid.Row="2" x:Name="ChangelogBox" IsReadOnly="True"
+                     TextWrapping="Wrap" AcceptsReturn="True"
+                     VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"
+                     FontSize="14" />
+
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <Button Content="Not now" Style="{StaticResource SecondaryButton}"
+                        Padding="16,9" Click="NotNowClicked" />
+                <Button Content="Install when I close" Style="{StaticResource SecondaryButton}"
+                        Padding="16,9" Margin="10,0,0,0" Click="InstallOnCloseClicked" />
+                <Button Content="Install now" Padding="18,9" Margin="10,0,0,0" Click="InstallNowClicked" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

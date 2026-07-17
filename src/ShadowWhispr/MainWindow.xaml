@@ -60,6 +60,11 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                       PanningMode="VerticalOnly">
             <Grid MaxWidth="980" Margin="34,28,34,30">
+                <!-- Scaled up on larger / higher-resolution surfaces so text stays
+                     readable on 1440p and 4K. Factor set in OnWindowSizeChanged. -->
+                <Grid.LayoutTransform>
+                    <ScaleTransform x:Name="UiScale" ScaleX="1" ScaleY="1" />
+                </Grid.LayoutTransform>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -362,11 +367,14 @@
                                        Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                            <CheckBox x:Name="AutoUpdateCheck" Content="Automatically install updates"
-                                      FontSize="12" VerticalAlignment="Center"
+                            <CheckBox x:Name="AutoUpdateCheck" Content="Automatically check for updates"
+                                      FontSize="13" VerticalAlignment="Center"
                                       Checked="AutoUpdateToggled" Unchecked="AutoUpdateToggled" />
+                            <Button x:Name="CheckUpdatesButton" Content="Check now"
+                                    Style="{StaticResource SecondaryButton}" Padding="12,5" MinHeight="0"
+                                    FontSize="12" Margin="14,0,0,0" Click="CheckForUpdatesClicked" />
                             <TextBlock x:Name="UpdateStatus" Margin="12,0,0,0" Foreground="{StaticResource MutedBrush}"
-                                       FontSize="11" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                       FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
                         </StackPanel>
                     </StackPanel>
                     <Button x:Name="SaveButton" Grid.Column="1" Content="Save settings" Padding="20,10"

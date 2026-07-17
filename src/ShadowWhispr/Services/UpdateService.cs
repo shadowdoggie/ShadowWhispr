@@ -9,7 +9,21 @@ using System.Text.RegularExpressions;
 namespace ShadowWhispr.Services;
 
 /// <summary>Describes an available newer release and its installer asset.</summary>
-public sealed record UpdateInfo(Version Version, string Tag, string InstallerUrl, string? ChecksumUrl, string InstallerName);
+public sealed record UpdateInfo(
+    Version Version,
+    string Tag,
+    string InstallerUrl,
+    string? ChecksumUrl,
+    string InstallerName,
+    string Changelog);
+
+/// <summary>What the user chose in the update confirmation prompt.</summary>
+public enum UpdateChoice
+{
+    Decline,
+    InstallNow,
+    InstallOnClose,
+}
 
 /// <summary>
 /// Keeps ShadowWhispr current without any manual download. On startup it asks
@@ -109,8 +123,12 @@ public sealed partial class UpdateService
                 return null;
             }
 
+            var changelog = root.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.String
+                ? body.GetString()?.Trim() ?? string.Empty
+                : string.Empty;
+
             AppLog.Write($"Update available: {tag} (newer than {CurrentVersion})");
-            return new UpdateInfo(latestVersion, tag, installerUrl, checksumUrl, installerName);
+            return new UpdateInfo(latestVersion, tag, installerUrl, checksumUrl, installerName, changelog);
         }
         catch (OperationCanceledException)
         {
@@ -179,11 +197,12 @@ public sealed partial class UpdateService
     }
 
     /// <summary>
-    /// Launches the downloaded installer silently. Called as the app exits so the
-    /// running executable no longer locks its own files. Inno Setup performs the
-    /// in-place per-user upgrade (stable AppId) with no UAC prompt.
+    /// Launches the downloaded installer silently as the app exits, so the
+    /// running executable no longer locks its own files. Used when the user
+    /// chose "install when I close"; the app is not reopened. Inno Setup performs
+    /// the in-place per-user upgrade (stable AppId) with no UAC prompt.
     /// </summary>
-    public static bool LaunchInstaller(string installerPath)
+    public static bool InstallOnClose(string installerPath)
     {
         try
         {
@@ -193,15 +212,13 @@ public sealed partial class UpdateService
                 return false;
             }
 
-            var startInfo = new ProcessStartInfo
+            Process.Start(new ProcessStartInfo
             {
                 FileName = installerPath,
-                // Silent, no message boxes, no forced reboot; restart the app after.
-                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /RESTARTAPPLICATIONS",
+                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
                 UseShellExecute = true,
-            };
-            Process.Start(startInfo);
-            AppLog.Write($"Update installer launched: {installerPath}");
+            });
+            AppLog.Write($"Update installer launched (install on close): {installerPath}");
             return true;
         }
         catch (Exception exception)
@@ -210,6 +227,51 @@ public sealed partial class UpdateService
             return false;
         }
     }
+
+    /// <summary>
+    /// Installs the update immediately and reopens the app. A detached helper
+    /// waits for this process to exit (so its files unlock), runs the installer
+    /// silently, then relaunches the app — after calling this, the caller shuts
+    /// the app down. This avoids relying on the installer's Restart Manager.
+    /// </summary>
+    public static bool InstallNowAndRestart(string installerPath, string appExePath)
+    {
+        try
+        {
+            if (!File.Exists(installerPath))
+            {
+                AppLog.Write($"Update install skipped: installer missing at {installerPath}");
+                return false;
+            }
+
+            var pid = Environment.ProcessId;
+            var installer = EscapeForSingleQuoted(installerPath);
+            var app = EscapeForSingleQuoted(appExePath);
+            var command =
+                "$ErrorActionPreference='SilentlyContinue';" +
+                $"Wait-Process -Id {pid} -Timeout 60;" +
+                $"Start-Process -FilePath '{installer}' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait;" +
+                $"Start-Process -FilePath '{app}'";
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"{command}\"",
+                UseShellExecute = true,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+            });
+            AppLog.Write($"Update helper launched (install now + restart): {installerPath}");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write("Launching the update helper failed", exception);
+            return false;
+        }
+    }
+
+    private static string EscapeForSingleQuoted(string value) => value.Replace("'", "''");
 
     private async Task<string?> TryGetExpectedHashAsync(UpdateInfo update, CancellationToken cancellationToken)
     {

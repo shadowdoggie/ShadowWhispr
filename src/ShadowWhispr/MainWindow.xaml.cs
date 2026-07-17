@@ -28,6 +28,11 @@ public partial class MainWindow : Window
     private readonly OverlayWindow _overlay = new();
     private readonly UpdateService _updates = new();
     private string? _pendingInstallerPath;
+    private System.Windows.Threading.DispatcherTimer? _updatePollTimer;
+    private System.Windows.Threading.DispatcherTimer? _updateRepromptTimer;
+    private bool _updateCheckInProgress;
+    private bool _updatePromptOpen;
+    private DateTime _suppressAutoPromptUntil = DateTime.MinValue;
 
     private AppSettings _settings = new();
     private TextInsertionTarget _insertionTarget;
@@ -50,11 +55,27 @@ public partial class MainWindow : Window
         _hotkey.Released += OnHotkeyReleased;
         _audio.RecordingFailed += (_, ex) => AppLog.Write("Audio recording failed", ex);
         _tones.PlaybackFailed += (_, ex) => AppLog.Write("Cue tone playback failed", ex);
+        SizeChanged += (_, _) => ApplyUiScale();
+    }
+
+    /// <summary>
+    /// Scales the whole interface up on larger surfaces so text stays readable on
+    /// 1440p and 4K. The window's height is in device-independent units, so this
+    /// already accounts for the Windows display-scaling setting: a high-resolution
+    /// screen left at a low OS scale reports a tall window and gets scaled up more.
+    /// </summary>
+    private void ApplyUiScale()
+    {
+        if (UiScale is null || ActualHeight <= 0) return;
+        var scale = Math.Clamp(ActualHeight / 900.0, 1.12, 1.8);
+        UiScale.ScaleX = scale;
+        UiScale.ScaleY = scale;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         AppLog.Write($"App started (version {typeof(MainWindow).Assembly.GetName().Version})");
+        ApplyUiScale();
         _lifetime = new CancellationTokenSource();
         _settings = _settingsService.Load();
         ApplySettingsToUi();
@@ -75,60 +96,179 @@ public partial class MainWindow : Window
 
         await RefreshModelsAsync(_settings.ModelId);
         _ = WarmSpeechEngineAsync(_lifetime.Token);
-        _ = CheckForUpdatesAsync(_lifetime.Token);
+
+        if (_settings.AutoUpdateEnabled)
+        {
+            StartUpdatePolling();
+            _ = RunUpdateCheckAsync(manual: false, _lifetime.Token);
+        }
+    }
+
+    // --- Automatic + manual update checking ------------------------------
+
+    private void StartUpdatePolling()
+    {
+        _updatePollTimer ??= CreateTimer(TimeSpan.FromMinutes(10),
+            () => _ = RunUpdateCheckAsync(manual: false, _lifetime?.Token ?? default));
+        _updatePollTimer.Start();
+    }
+
+    private static System.Windows.Threading.DispatcherTimer CreateTimer(TimeSpan interval, Action onTick)
+    {
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = interval };
+        timer.Tick += (_, _) => onTick();
+        return timer;
     }
 
     /// <summary>
-    /// Checks GitHub for a newer release and, when auto-update is on, downloads
-    /// and verifies the installer in the background. The verified installer runs
-    /// silently on app close (OnClosing), so the user is never interrupted.
+    /// Checks GitHub for a newer release. Automatic checks stay silent unless a
+    /// newer version is found, in which case the user is prompted — never
+    /// auto-installed. Manual checks always report their result.
     /// </summary>
-    private async Task CheckForUpdatesAsync(CancellationToken cancellationToken)
+    private async Task RunUpdateCheckAsync(bool manual, CancellationToken cancellationToken)
     {
-        if (!_settings.AutoUpdateEnabled)
-        {
-            AppLog.Write("Auto-update disabled; skipping update check");
-            return;
-        }
-
+        if (!manual && !_settings.AutoUpdateEnabled) return;
+        if (_updateCheckInProgress) return;
+        _updateCheckInProgress = true;
         try
         {
+            if (manual) SetUpdateStatus("Checking for updates…");
             var update = await _updates.CheckForUpdateAsync(cancellationToken);
-            if (update is null) return;
 
+            if (update is null)
+            {
+                if (manual) SetUpdateStatus("You're on the latest version.");
+                return;
+            }
+
+            if (!manual)
+            {
+                // Don't interrupt a dictation in progress or stack a second
+                // prompt; the next poll or the 5-minute reminder will catch it.
+                if (_updatePromptOpen || _busy || _audio.IsRecording) return;
+                if (DateTime.Now < _suppressAutoPromptUntil) return;
+            }
+
+            await PromptForUpdateAsync(update, cancellationToken);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            AppLog.Write("Update check failed", ex);
+            if (manual) SetUpdateStatus("Update check failed — see app-log.txt");
+        }
+        finally
+        {
+            _updateCheckInProgress = false;
+        }
+    }
+
+    private async Task PromptForUpdateAsync(UpdateInfo update, CancellationToken cancellationToken)
+    {
+        if (_updatePromptOpen) return;
+        _updatePromptOpen = true;
+        try
+        {
+            AppLog.Write($"Showing update prompt for {update.Tag}");
+            var prompt = new UpdatePromptWindow(update.Tag, update.Changelog) { Owner = this };
+            prompt.ShowDialog();
+            AppLog.Write($"Update prompt choice for {update.Tag}: {prompt.Choice}");
+
+            switch (prompt.Choice)
+            {
+                case UpdateChoice.InstallNow:
+                    await InstallUpdateAsync(update, restartAfter: true, cancellationToken);
+                    break;
+                case UpdateChoice.InstallOnClose:
+                    await InstallUpdateAsync(update, restartAfter: false, cancellationToken);
+                    break;
+                default:
+                    // Declined: remind again in 5 minutes (and on next launch).
+                    if (_settings.AutoUpdateEnabled)
+                    {
+                        _suppressAutoPromptUntil = DateTime.Now.AddMinutes(5);
+                        _updateRepromptTimer ??= CreateTimer(TimeSpan.FromMinutes(5), () =>
+                        {
+                            _updateRepromptTimer!.Stop();
+                            _ = RunUpdateCheckAsync(manual: false, _lifetime?.Token ?? default);
+                        });
+                        _updateRepromptTimer.Stop();
+                        _updateRepromptTimer.Start();
+                        SetUpdateStatus($"Update {update.Tag} available — you'll be reminded in 5 minutes.");
+                    }
+                    else
+                    {
+                        SetUpdateStatus($"Update {update.Tag} available.");
+                    }
+                    break;
+            }
+        }
+        finally
+        {
+            _updatePromptOpen = false;
+        }
+    }
+
+    private async Task InstallUpdateAsync(UpdateInfo update, bool restartAfter, CancellationToken cancellationToken)
+    {
+        try
+        {
             SetUpdateStatus($"Downloading update {update.Tag}…");
             var installerPath = await _updates.DownloadInstallerAsync(update, cancellationToken);
             if (cancellationToken.IsCancellationRequested) return;
-
             if (installerPath is null)
             {
                 SetUpdateStatus("Update download failed — see app-log.txt");
                 return;
             }
 
-            _pendingInstallerPath = installerPath;
-            SetUpdateStatus($"Update {update.Tag} ready — installs when you close ShadowWhispr");
+            if (restartAfter)
+            {
+                SetUpdateStatus($"Installing {update.Tag}… ShadowWhispr will reopen.");
+                var appExe = Environment.ProcessPath;
+                if (appExe is not null && UpdateService.InstallNowAndRestart(installerPath, appExe))
+                {
+                    Close();
+                }
+                else
+                {
+                    SetUpdateStatus("Could not start the installer — see app-log.txt");
+                }
+            }
+            else
+            {
+                _pendingInstallerPath = installerPath;
+                SetUpdateStatus($"Update {update.Tag} will install when you close ShadowWhispr.");
+            }
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            AppLog.Write("Update flow failed", ex);
+            AppLog.Write("Installing the update failed", ex);
+            SetUpdateStatus("Update failed — see app-log.txt");
         }
     }
 
     private void SetUpdateStatus(string text) => Dispatcher.Invoke(() => UpdateStatus.Text = text);
 
+    private void CheckForUpdatesClicked(object sender, RoutedEventArgs e) =>
+        _ = RunUpdateCheckAsync(manual: true, _lifetime?.Token ?? default);
+
     private void AutoUpdateToggled(object sender, RoutedEventArgs e)
     {
         if (!_uiReady) return;
         ReadUiIntoSettings();
-        if (_settings.AutoUpdateEnabled && _pendingInstallerPath is null)
+        if (_settings.AutoUpdateEnabled)
         {
-            _ = CheckForUpdatesAsync(_lifetime?.Token ?? default);
+            AppLog.Write("Auto-update enabled by user");
+            StartUpdatePolling();
+            _ = RunUpdateCheckAsync(manual: false, _lifetime?.Token ?? default);
         }
-        else if (!_settings.AutoUpdateEnabled)
+        else
         {
             AppLog.Write("Auto-update turned off by user");
+            _updatePollTimer?.Stop();
+            _updateRepromptTimer?.Stop();
         }
     }
 
@@ -618,6 +758,7 @@ public partial class MainWindow : Window
         // hide from the log nor prevent the remaining cleanup from running.
         RunLogged("save settings on close", () => { ReadUiIntoSettings(); _settingsService.Save(_settings); });
         RunLogged("cancel pending work", () => { _lifetime?.Cancel(); _modelRefresh?.Cancel(); });
+        RunLogged("stop update timers", () => { _updatePollTimer?.Stop(); _updateRepromptTimer?.Stop(); });
         RunLogged("stop hotkey hook", _hotkey.Dispose);
         RunLogged("stop tone player", _tones.Dispose);
         RunLogged("stop audio recorder", _audio.Dispose);
@@ -629,7 +770,7 @@ public partial class MainWindow : Window
         // downloaded update. The silent installer performs the in-place upgrade.
         if (_pendingInstallerPath is not null)
         {
-            RunLogged("launch pending update installer", () => UpdateService.LaunchInstaller(_pendingInstallerPath));
+            RunLogged("launch pending update installer", () => UpdateService.InstallOnClose(_pendingInstallerPath));
         }
     }
 
