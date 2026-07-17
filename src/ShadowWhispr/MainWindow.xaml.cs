@@ -146,6 +146,7 @@ public partial class MainWindow : Window
     private async void OnHotkeyPressed(object? sender, EventArgs e)
     {
         if (_busy || _audio.IsRecording) return;
+        if (SetupBanner.Visibility == Visibility.Visible) return;
         try
         {
             _insertionTarget = _inserter.CaptureTarget();

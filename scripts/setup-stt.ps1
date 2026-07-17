@@ -106,5 +106,9 @@ if ($LASTEXITCODE -ne 0) {
     throw "Could not download the Parakeet speech model. Check your internet connection, then run this again."
 }
 
+# Written last: the app treats setup as finished only when this file exists,
+# so an interrupted setup is retried instead of half-loading.
+Set-Content -LiteralPath (Join-Path $venvPath "setup-complete") -Value "ok" -Encoding ascii
+
 Write-Host ""
 Write-Host "Speech-to-text setup is ready. You can close this window and use ShadowWhispr."

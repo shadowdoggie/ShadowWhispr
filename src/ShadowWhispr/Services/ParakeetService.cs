@@ -47,9 +47,12 @@ public sealed class ParakeetService : IAsyncDisposable
         var appDirectory = AppContext.BaseDirectory;
         var projectRoot = FindProjectRoot(appDirectory);
         var python = Path.Combine(projectRoot, ".venv", "Scripts", "python.exe");
+        var setupComplete = Path.Combine(projectRoot, ".venv", "setup-complete");
         var worker = Path.Combine(projectRoot, "stt", "worker.py");
 
-        if (!File.Exists(python))
+        // The marker is written as the setup script's last step; a .venv without
+        // it is a partial install (e.g. the model download was interrupted).
+        if (!File.Exists(python) || !File.Exists(setupComplete))
             throw new SpeechSetupRequiredException(ResolveSetupScript(projectRoot, appDirectory));
         if (!File.Exists(worker))
             worker = Path.Combine(appDirectory, "stt", "worker.py");
