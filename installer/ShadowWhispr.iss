@@ -73,4 +73,5 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 [UninstallDelete]
 ; Remove the first-run speech environment the app created next to itself.
 Type: filesandordirs; Name: "{app}\.venv"
+Type: filesandordirs; Name: "{app}\speech-model"
 Type: files; Name: "{app}\setup-log.txt"

@@ -25,10 +25,11 @@ from scipy.signal import resample_poly
 from transformers import AutoModelForTDT, AutoProcessor
 
 
-MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
-# Exact model revision verified against the pinned transformers commit, so an
-# upstream repo update can never break installed apps.
-MODEL_REVISION = "7c35754d166cca382ad1e53e68b01e7c575f3a1d"
+# The setup script downloads the pinned model revision into this plain folder
+# of real files. Loading from a local directory involves no Hugging Face cache,
+# no symlinks, and no network - the failure modes that broke installed apps.
+MODEL_DIR = Path(__file__).resolve().parent.parent / "speech-model"
+REQUIRED_MODEL_FILES = ("config.json", "model.safetensors", "processor_config.json", "tokenizer.json")
 
 
 def emit(message: dict[str, Any]) -> None:
@@ -95,73 +96,73 @@ def transcribe(model: Any, processor: Any, audio_path: Path) -> str:
         del waveform, inputs, output
 
 
-def is_model_cache_miss(exc: BaseException) -> bool:
-    """True when the pinned model files are absent from the local HF cache."""
-    try:
-        from huggingface_hub.errors import LocalEntryNotFoundError
-    except ImportError:
-        LocalEntryNotFoundError = None
-
-    seen: set[int] = set()
-    current: BaseException | None = exc
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        if LocalEntryNotFoundError is not None and isinstance(current, LocalEntryNotFoundError):
-            return True
-        current = current.__cause__ or current.__context__
-    return "cached files" in str(exc)
+def model_files_present() -> bool:
+    return all((MODEL_DIR / name).is_file() for name in REQUIRED_MODEL_FILES)
 
 
 def load_speech_stack() -> tuple[Any, Any]:
-    """Load processor and model, preferring the local cache.
+    """Load processor and model from the plain local model folder.
 
-    The setup script pre-downloads the pinned revision, so the normal path is
-    offline and immune to Hugging Face outages or rate limits. Freshly written
-    cache files can be briefly unreadable (e.g. an antivirus scanning a 2.4 GB
-    download), so local loads are retried before falling back to one normal
-    online load, which also repairs any incomplete cache for later starts.
+    Freshly written files can be briefly unreadable (e.g. an antivirus scanning
+    a large download), so the load is retried before giving up.
     """
+    last_error: Exception = RuntimeError("The speech model could not be loaded.")
     for attempt in range(3):
         if attempt:
             time.sleep(5)
         try:
-            processor = AutoProcessor.from_pretrained(
-                MODEL_ID, revision=MODEL_REVISION, local_files_only=True
-            )
-            model = AutoModelForTDT.from_pretrained(
-                MODEL_ID, revision=MODEL_REVISION, local_files_only=True, dtype=torch.float16
-            )
+            processor = AutoProcessor.from_pretrained(str(MODEL_DIR))
+            model = AutoModelForTDT.from_pretrained(str(MODEL_DIR), dtype=torch.float16)
             return processor, model
         except Exception as exc:
+            last_error = exc
             print(
-                f"Local model load failed (attempt {attempt + 1}/3): {exc}",
+                f"Model load failed (attempt {attempt + 1}/3): {exc}",
                 file=sys.stderr,
                 flush=True,
             )
-
-    print("Falling back to an online model load...", file=sys.stderr, flush=True)
-    processor = AutoProcessor.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
-    model = AutoModelForTDT.from_pretrained(MODEL_ID, revision=MODEL_REVISION, dtype=torch.float16)
-    return processor, model
+    raise last_error
 
 
 def main() -> int:
+    if not torch.cuda.is_available():
+        # Setup cannot fix a missing GPU, so do not send the user back there.
+        emit(
+            {
+                "type": "ready",
+                "ready": False,
+                "error": "An NVIDIA GPU with a working CUDA PyTorch install is required",
+                "setup_required": False,
+            }
+        )
+        return 1
+
     try:
-        if not torch.cuda.is_available():
-            raise RuntimeError("An NVIDIA GPU with a working CUDA PyTorch install is required")
+        if not model_files_present():
+            # setup_required makes the app reopen the one-time setup panel,
+            # which re-downloads the model folder.
+            emit(
+                {
+                    "type": "ready",
+                    "ready": False,
+                    "error": f"The speech model files are missing from {MODEL_DIR}.",
+                    "setup_required": True,
+                }
+            )
+            return 1
 
         processor, model = load_speech_stack()
         model.to("cuda")
         model.eval()
     except Exception as exc:
-        # setup_required lets the app reopen the one-time setup panel (which
-        # re-downloads the model) instead of dead-ending on a missing cache.
+        # A load failure with the files present usually means an interrupted
+        # download left them corrupt; re-running setup overwrites them.
         emit(
             {
                 "type": "ready",
                 "ready": False,
                 "error": str(exc),
-                "setup_required": is_model_cache_miss(exc),
+                "setup_required": True,
             }
         )
         return 1
@@ -170,7 +171,7 @@ def main() -> int:
         {
             "type": "ready",
             "ready": True,
-            "model": MODEL_ID,
+            "model": str(MODEL_DIR),
             "device": torch.cuda.get_device_name(0),
             "error": None,
         }

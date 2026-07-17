@@ -12,6 +12,7 @@ obj/
 *.wav
 *.log
 setup-log.txt
+speech-model/
 __pycache__/
 *.pyc
 .pytest_cache/

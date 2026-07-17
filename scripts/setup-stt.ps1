@@ -125,11 +125,29 @@ try {
         throw "PyTorch cannot use the NVIDIA GPU. Check that you have an NVIDIA GPU and current driver, then run this again."
     }
 
-    # The revision here must match MODEL_REVISION in stt\worker.py - the worker
-    # runs offline and loads exactly this snapshot from the local cache.
-    Write-Host "Downloading the Parakeet speech model (about 2.5 GB, one-time)..."
+    # Download the pinned model revision into a plain folder of real files next
+    # to the app. The worker loads only from this folder (see stt\worker.py) -
+    # no Hugging Face cache, no symlinks, no network at engine start.
+    Write-Host "Downloading the Parakeet speech model (about 2.4 GB, one-time)..."
+    $modelDir = Join-Path $repoRoot "speech-model"
+    $downloadScript = @"
+from huggingface_hub import snapshot_download
+snapshot_download(
+    'nvidia/parakeet-tdt-0.6b-v3',
+    revision='7c35754d166cca382ad1e53e68b01e7c575f3a1d',
+    local_dir=r'$modelDir',
+    allow_patterns=[
+        'config.json',
+        'generation_config.json',
+        'model.safetensors',
+        'processor_config.json',
+        'tokenizer.json',
+        'tokenizer_config.json',
+    ],
+)
+"@
     Invoke-WithRetry -Description "Downloading the speech model" -Action {
-        & $venvPython -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/parakeet-tdt-0.6b-v3', revision='7c35754d166cca382ad1e53e68b01e7c575f3a1d')"
+        & $venvPython -c $downloadScript
     }
 
     # Prove the engine really starts before declaring setup finished: launch the
