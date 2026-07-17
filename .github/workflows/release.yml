@@ -58,7 +58,7 @@ jobs:
           gh release upload "${{ github.event.release.tag_name }}" "$setup" --clobber
 
       - name: Save the installer as a build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ShadowWhispr-Setup
           path: build/installer/*.exe
