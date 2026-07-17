@@ -337,7 +337,7 @@ public sealed class TextInsertionService
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", EntryPoint = "GetGUIThreadInfo")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetGuiThreadInfo(uint threadId, ref GuiThreadInfo info);
 

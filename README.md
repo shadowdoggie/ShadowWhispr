@@ -2,6 +2,8 @@
 
 Hold a hotkey, speak, and release to type into the selected Windows input. Speech recognition runs locally with NVIDIA Parakeet v3. Optional cleanup can use the user's existing Claude, ChatGPT/Codex, Google Antigravity, or Kimi subscription login.
 
+Click the hotkey field and press any key or modifier combination to change it. Extended keys F13 through F24 are supported. Provider Login and Logout buttons use each official provider tool; the installed Kimi tool supports login but does not expose logout.
+
 ## Run on this PC
 
 ```powershell

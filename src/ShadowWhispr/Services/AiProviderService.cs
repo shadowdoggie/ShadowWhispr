@@ -47,12 +47,68 @@ public sealed partial class AiProviderService
 
     public string GetAuthenticationCommand(string provider) => NormalizeProvider(provider) switch
     {
-        Claude => "claude",
+        Claude => "claude auth login --claudeai",
         Codex => "codex login",
-        Gemini => "agy",
+        Gemini => "agy (opens OAuth onboarding when signed out)",
         Kimi => "kimi login",
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
+
+    /// <summary>
+    /// Opens the provider's official interactive subscription sign-in flow in a visible console.
+    /// The task completes when the provider CLI exits, allowing the caller to refresh models/status.
+    /// </summary>
+    public async Task LoginAsync(string provider, CancellationToken cancellationToken = default)
+    {
+        EnsureIsolatedDirectories();
+        var normalizedProvider = NormalizeProvider(provider);
+        var arguments = normalizedProvider switch
+        {
+            Claude => new[] { "auth", "login", "--claudeai" },
+            Codex => new[] { "login" },
+            // agy has no auth subcommand. Its official first-run onboarding launches Google OAuth
+            // automatically when no Antigravity session is available.
+            Gemini => Array.Empty<string>(),
+            Kimi => new[] { "login" },
+            _ => throw new ArgumentOutOfRangeException(nameof(provider))
+        };
+
+        await RunInteractiveAsync(GetCommand(normalizedProvider), arguments, cancellationToken);
+    }
+
+    /// <summary>
+    /// Signs out through the provider's official CLI when it exposes a non-destructive logout command.
+    /// </summary>
+    public async Task LogoutAsync(string provider, CancellationToken cancellationToken = default)
+    {
+        EnsureIsolatedDirectories();
+        var normalizedProvider = NormalizeProvider(provider);
+        if (normalizedProvider == Gemini)
+        {
+            // Antigravity exposes sign-out as /logout inside its interactive CLI.
+            await RunInteractiveAsync(GetCommand(normalizedProvider), [], cancellationToken);
+            return;
+        }
+
+        IReadOnlyCollection<string> arguments = normalizedProvider switch
+        {
+            Claude => new[] { "auth", "logout" },
+            Codex => new[] { "logout" },
+            Kimi => throw new AiProviderException(
+                "Kimi Code's official CLI does not provide a logout command."),
+            _ => throw new ArgumentOutOfRangeException(nameof(provider))
+        };
+
+        var result = await RunAsync(
+            GetCommand(normalizedProvider),
+            arguments,
+            standardInput: null,
+            workingDirectory: _isolatedWorkDirectory,
+            environment: normalizedProvider == Kimi ? KimiEnvironment(reasoning: null) : null,
+            cancellationToken);
+
+        EnsureSuccess(normalizedProvider, result);
+    }
 
     public async Task<IReadOnlyList<AiModelOption>> DiscoverModelsAsync(
         string provider,
@@ -544,6 +600,7 @@ public sealed partial class AiProviderService
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = true,
+            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
@@ -593,6 +650,56 @@ public sealed partial class AiProviderService
             throw new AiProviderException($"{fileName} did not finish within {_commandTimeout.TotalMinutes:0.#} minutes.");
         }
         catch
+        {
+            TryKill(process);
+            throw;
+        }
+    }
+
+    private async Task RunInteractiveAsync(
+        string command,
+        IReadOnlyCollection<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        var executable = FindOnPath(command);
+        if (executable is null)
+        {
+            throw new AiProviderException($"{command} is not installed or is not available on PATH.");
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            WorkingDirectory = _isolatedWorkDirectory,
+            UseShellExecute = true,
+            CreateNoWindow = false,
+            WindowStyle = ProcessWindowStyle.Normal
+        };
+
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = new Process { StartInfo = startInfo };
+        try
+        {
+            if (!process.Start())
+            {
+                throw new AiProviderException($"Could not start {command}'s sign-in window.");
+            }
+
+            await process.WaitForExitAsync(cancellationToken);
+            if (process.ExitCode != 0)
+            {
+                throw new AiProviderException($"{command}'s sign-in window exited with code {process.ExitCode}.");
+            }
+        }
+        catch (Win32Exception exception)
+        {
+            throw new AiProviderException($"Could not open {command}'s sign-in window.", exception);
+        }
+        catch (OperationCanceledException)
         {
             TryKill(process);
             throw;

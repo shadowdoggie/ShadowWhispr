@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using ShadowWhispr.Models;
 using ShadowWhispr.Services;
@@ -12,6 +14,7 @@ public partial class MainWindow : Window
     private static readonly Brush ReadyGreen = new SolidColorBrush(Color.FromRgb(83, 211, 137));
     private static readonly Brush WorkingGold = new SolidColorBrush(Color.FromRgb(231, 184, 92));
     private static readonly Brush ErrorRed = new SolidColorBrush(Color.FromRgb(223, 74, 74));
+    private static readonly Brush LineGray = new SolidColorBrush(Color.FromRgb(53, 65, 78));
 
     private readonly SettingsService _settingsService = new();
     private readonly ParakeetService _parakeet = new();
@@ -29,6 +32,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _lifetime;
     private CancellationTokenSource? _modelRefresh;
     private int _modelRefreshGeneration;
+    private bool _capturingHotkey;
+    private string _hotkeyBeforeCapture = "Right Ctrl";
 
     public MainWindow()
     {
@@ -44,6 +49,7 @@ public partial class MainWindow : Window
         _lifetime = new CancellationTokenSource();
         _settings = _settingsService.Load();
         ApplySettingsToUi();
+        SetAuthHint(_settings.Provider);
         _overlay.Owner = null;
         _overlay.Show();
 
@@ -152,7 +158,7 @@ public partial class MainWindow : Window
     private void ApplySettingsToUi()
     {
         _uiReady = false;
-        SelectComboText(HotkeyCombo, _settings.Hotkey);
+        HotkeyCaptureButton.Content = _settings.Hotkey;
         AiEnabledCheck.IsChecked = _settings.AiEnabled;
         SelectComboText(ProviderCombo, _settings.Provider);
         InstructionBox.Text = _settings.CustomInstruction;
@@ -164,7 +170,81 @@ public partial class MainWindow : Window
     {
         if (!_uiReady) return;
         ReadUiIntoSettings();
+        SetAuthHint(_settings.Provider);
         await RefreshModelsAsync(null);
+    }
+
+    private async void LoginClicked(object sender, RoutedEventArgs e)
+    {
+        var provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
+        SetAuthButtonsEnabled(false);
+        AuthStatus.Text = $"Complete {provider} login in the window that opens…";
+        try
+        {
+            await _ai.LoginAsync(provider, _lifetime?.Token ?? default);
+            AuthStatus.Text = $"{provider} login finished";
+            await RefreshModelsAsync(null);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = ex.Message;
+        }
+        finally
+        {
+            SetAuthButtonsEnabled(true);
+        }
+    }
+
+    private async void LogoutClicked(object sender, RoutedEventArgs e)
+    {
+        var provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
+        if (MessageBox.Show(
+                $"Log out of {provider}?",
+                "ShadowWhispr",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+
+        SetAuthButtonsEnabled(false);
+        AuthStatus.Text = provider == AiProviderService.Gemini
+            ? "In Antigravity, type /logout, then /quit"
+            : $"Logging out of {provider}…";
+        try
+        {
+            await _ai.LogoutAsync(provider, _lifetime?.Token ?? default);
+            AuthStatus.Text = provider == AiProviderService.Gemini
+                ? "Antigravity window closed"
+                : $"Logged out of {provider}";
+            ModelCombo.ItemsSource = Array.Empty<AiModelOption>();
+            ReasoningCombo.ItemsSource = Array.Empty<string>();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = ex.Message;
+        }
+        finally
+        {
+            SetAuthButtonsEnabled(true);
+        }
+    }
+
+    private void SetAuthButtonsEnabled(bool enabled)
+    {
+        LoginButton.IsEnabled = enabled;
+        LogoutButton.IsEnabled = enabled;
+        ProviderCombo.IsEnabled = enabled;
+    }
+
+    private void SetAuthHint(string provider)
+    {
+        AuthStatus.Text = provider switch
+        {
+            AiProviderService.Gemini => "Login uses Google Antigravity",
+            AiProviderService.Kimi => "Kimi supports login; its tool has no logout",
+            _ => $"Login uses your {provider} subscription"
+        };
     }
 
     private async Task RefreshModelsAsync(string? preferredId)
@@ -241,9 +321,102 @@ public partial class MainWindow : Window
         _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
     }
 
+    private void InstructionResizeDragged(object sender, DragDeltaEventArgs e)
+    {
+        InstructionBox.Height = Math.Clamp(
+            InstructionBox.ActualHeight + e.VerticalChange,
+            InstructionBox.MinHeight,
+            InstructionBox.MaxHeight);
+    }
+
+    private void HotkeyCaptureMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (_capturingHotkey) return;
+
+        _capturingHotkey = true;
+        _hotkeyBeforeCapture = HotkeyCaptureButton.Content?.ToString() ?? _settings.Hotkey;
+        _hotkey.Enabled = false;
+        HotkeyCaptureButton.Content = "Press a key or combination…";
+        HotkeyCaptureButton.BorderBrush = WorkingGold;
+        HotkeyCaptureButton.Focus();
+        Keyboard.Focus(HotkeyCaptureButton);
+    }
+
+    private void HotkeyCaptureKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_capturingHotkey) return;
+        e.Handled = true;
+
+        var key = GetActualKey(e);
+        if (key == Key.Escape)
+        {
+            FinishHotkeyCapture(null);
+            return;
+        }
+        if (IsModifierKey(key)) return;
+
+        var virtualKey = KeyInterop.VirtualKeyFromKey(key);
+        if (virtualKey == 0) return;
+
+        var modifiers = Keyboard.Modifiers;
+        var hotkey = HoldHotkey.FromVirtualKey(
+            virtualKey,
+            modifiers.HasFlag(ModifierKeys.Control),
+            modifiers.HasFlag(ModifierKeys.Shift),
+            modifiers.HasFlag(ModifierKeys.Alt),
+            modifiers.HasFlag(ModifierKeys.Windows));
+        FinishHotkeyCapture(hotkey);
+    }
+
+    private void HotkeyCaptureKeyUp(object sender, KeyEventArgs e)
+    {
+        if (!_capturingHotkey) return;
+        e.Handled = true;
+
+        var key = GetActualKey(e);
+        if (!IsModifierKey(key)) return;
+
+        var virtualKey = KeyInterop.VirtualKeyFromKey(key);
+        if (virtualKey != 0)
+            FinishHotkeyCapture(HoldHotkey.FromVirtualKey(virtualKey));
+    }
+
+    private void HotkeyCaptureLostFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (_capturingHotkey) FinishHotkeyCapture(null);
+    }
+
+    private void FinishHotkeyCapture(HoldHotkey? hotkey)
+    {
+        var text = hotkey?.ToString() ?? _hotkeyBeforeCapture;
+        _capturingHotkey = false;
+        HotkeyCaptureButton.Content = text;
+        HotkeyCaptureButton.BorderBrush = LineGray;
+
+        _settings.Hotkey = text;
+        _hotkey.Hotkey = ParseHotkey(text);
+        _hotkey.Enabled = true;
+    }
+
+    private static Key GetActualKey(KeyEventArgs e) => e.Key switch
+    {
+        Key.System => e.SystemKey,
+        Key.ImeProcessed => e.ImeProcessedKey,
+        Key.DeadCharProcessed => e.DeadCharProcessedKey,
+        _ => e.Key
+    };
+
+    private static bool IsModifierKey(Key key) => key is
+        Key.LeftCtrl or Key.RightCtrl or
+        Key.LeftAlt or Key.RightAlt or
+        Key.LeftShift or Key.RightShift or
+        Key.LWin or Key.RWin;
+
     private void ReadUiIntoSettings()
     {
-        _settings.Hotkey = GetComboText(HotkeyCombo) ?? "Right Ctrl";
+        if (!_capturingHotkey)
+            _settings.Hotkey = HotkeyCaptureButton.Content?.ToString() ?? "Right Ctrl";
         _settings.AiEnabled = AiEnabledCheck.IsChecked == true;
         _settings.Provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
         if (ModelCombo.SelectedItem is AiModelOption model) _settings.ModelId = model.Id;
@@ -294,16 +467,8 @@ public partial class MainWindow : Window
         combo.SelectedIndex = 0;
     }
 
-    private static HoldHotkey ParseHotkey(string value) => value switch
-    {
-        "Right Alt" => HoldHotkey.RightAlt,
-        "Ctrl + Space" => HoldHotkey.CtrlSpace,
-        "Ctrl + Shift + Space" => HoldHotkey.CtrlShiftSpace,
-        "Alt + Space" => HoldHotkey.AltSpace,
-        "F8" => HoldHotkey.F8,
-        "F9" => HoldHotkey.F9,
-        _ => HoldHotkey.RightCtrl
-    };
+    private static HoldHotkey ParseHotkey(string value) =>
+        HoldHotkey.TryParse(value, out var hotkey) ? hotkey : HoldHotkey.Default;
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {

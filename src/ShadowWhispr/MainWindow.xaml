@@ -1,7 +1,7 @@
 <Window x:Class="ShadowWhispr.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ShadowWhispr" Width="760" Height="690" MinWidth="680" MinHeight="620"
+        Title="ShadowWhispr" Width="760" Height="1380" MinWidth="680" MinHeight="620"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <Style x:Key="Label" TargetType="TextBlock">
@@ -53,16 +53,19 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="Hold-to-talk hotkey" Style="{StaticResource Label}" />
-                    <ComboBox x:Name="HotkeyCombo" SelectionChanged="SettingsChanged">
-                        <ComboBoxItem Content="Right Ctrl" />
-                        <ComboBoxItem Content="Right Alt" />
-                        <ComboBoxItem Content="Ctrl + Space" />
-                        <ComboBoxItem Content="Ctrl + Shift + Space" />
-                        <ComboBoxItem Content="Alt + Space" />
-                        <ComboBoxItem Content="F8" />
-                        <ComboBoxItem Content="F9" />
-                    </ComboBox>
+                    <TextBlock Text="Hold-to-talk hotkey · click to change" Style="{StaticResource Label}" />
+                    <Button x:Name="HotkeyCaptureButton"
+                            Content="Right Ctrl"
+                            Background="{StaticResource PanelRaisedBrush}"
+                            Foreground="{StaticResource TextBrush}"
+                            BorderBrush="{StaticResource LineBrush}"
+                            BorderThickness="1"
+                            FontWeight="Normal"
+                            HorizontalContentAlignment="Left"
+                            PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
+                            PreviewKeyDown="HotkeyCaptureKeyDown"
+                            PreviewKeyUp="HotkeyCaptureKeyUp"
+                            LostKeyboardFocus="HotkeyCaptureLostFocus" />
                 </StackPanel>
                 <StackPanel Grid.Column="2">
                     <TextBlock Text="Speech model" Style="{StaticResource Label}" />
@@ -98,6 +101,16 @@
                             <ComboBoxItem Content="Gemini" />
                             <ComboBoxItem Content="Kimi" />
                         </ComboBox>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button x:Name="LoginButton" Content="Login" Padding="11,5" FontSize="11"
+                                    Click="LoginClicked" />
+                            <Button x:Name="LogoutButton" Content="Logout" Padding="11,5" Margin="7,0,0,0"
+                                    FontSize="11" Background="{StaticResource PanelRaisedBrush}"
+                                    Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource LineBrush}"
+                                    BorderThickness="1" Click="LogoutClicked" />
+                        </StackPanel>
+                        <TextBlock x:Name="AuthStatus" Text="Checking login…" Margin="0,6,0,0"
+                                   Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
                     </StackPanel>
                     <StackPanel Grid.Column="2">
                         <TextBlock Text="Model" Style="{StaticResource Label}" />
@@ -109,8 +122,44 @@
                     </StackPanel>
                     <StackPanel Grid.Row="1" Grid.ColumnSpan="5" Margin="0,14,0,0">
                         <TextBlock Text="Custom cleanup instruction" Style="{StaticResource Label}" />
-                        <TextBox x:Name="InstructionBox" Height="82" AcceptsReturn="True" TextWrapping="Wrap"
-                                 VerticalScrollBarVisibility="Auto" TextChanged="SettingsChanged" />
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="8" />
+                            </Grid.RowDefinitions>
+                            <TextBox x:Name="InstructionBox" Height="480" MinHeight="60" MaxHeight="480"
+                                     AcceptsReturn="True" TextWrapping="Wrap" Background="#11161C"
+                                     Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource LineBrush}"
+                                     VerticalScrollBarVisibility="Auto" TextChanged="SettingsChanged">
+                                <TextBox.Template>
+                                    <ControlTemplate TargetType="TextBox">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="4">
+                                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter Property="Opacity" Value="0.65" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </TextBox.Template>
+                            </TextBox>
+                            <Thumb Grid.Row="1" Cursor="SizeNS" DragDelta="InstructionResizeDragged"
+                                   ToolTip="Drag to resize the instruction box">
+                                <Thumb.Template>
+                                    <ControlTemplate TargetType="Thumb">
+                                        <Grid Background="Transparent">
+                                            <Border Width="42" Height="3" CornerRadius="2"
+                                                    Background="{StaticResource LineBrush}"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                        </Grid>
                     </StackPanel>
                 </Grid>
             </StackPanel>
