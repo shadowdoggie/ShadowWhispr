@@ -73,7 +73,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.event.release.tag_name }}"
-          $currentNotes = gh release view $tag --json body --jq .body
+          # Join into one string: PowerShell returns native command output as an
+          # array of lines, which would flatten the notes and make the -notlike
+          # check match per-line (always truthy) instead of on the whole body.
+          $currentNotes = (gh release view $tag --json body --jq .body) -join "`n"
           if ($currentNotes -notlike '*Unknown publisher*') {
             $notice = @'
           > [!IMPORTANT]
