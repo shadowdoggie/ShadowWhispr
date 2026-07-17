@@ -13,15 +13,10 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
-
-# The setup script pre-downloads the pinned model revision, so the worker
-# loads purely from the local cache. Must be set before importing
-# transformers/huggingface_hub; override with HF_HUB_OFFLINE=0 if needed.
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 import numpy as np
 import soundfile as sf
@@ -117,13 +112,45 @@ def is_model_cache_miss(exc: BaseException) -> bool:
     return "cached files" in str(exc)
 
 
+def load_speech_stack() -> tuple[Any, Any]:
+    """Load processor and model, preferring the local cache.
+
+    The setup script pre-downloads the pinned revision, so the normal path is
+    offline and immune to Hugging Face outages or rate limits. Freshly written
+    cache files can be briefly unreadable (e.g. an antivirus scanning a 2.4 GB
+    download), so local loads are retried before falling back to one normal
+    online load, which also repairs any incomplete cache for later starts.
+    """
+    for attempt in range(3):
+        if attempt:
+            time.sleep(5)
+        try:
+            processor = AutoProcessor.from_pretrained(
+                MODEL_ID, revision=MODEL_REVISION, local_files_only=True
+            )
+            model = AutoModelForTDT.from_pretrained(
+                MODEL_ID, revision=MODEL_REVISION, local_files_only=True, dtype=torch.float16
+            )
+            return processor, model
+        except Exception as exc:
+            print(
+                f"Local model load failed (attempt {attempt + 1}/3): {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+    print("Falling back to an online model load...", file=sys.stderr, flush=True)
+    processor = AutoProcessor.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
+    model = AutoModelForTDT.from_pretrained(MODEL_ID, revision=MODEL_REVISION, dtype=torch.float16)
+    return processor, model
+
+
 def main() -> int:
     try:
         if not torch.cuda.is_available():
             raise RuntimeError("An NVIDIA GPU with a working CUDA PyTorch install is required")
 
-        processor = AutoProcessor.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
-        model = AutoModelForTDT.from_pretrained(MODEL_ID, revision=MODEL_REVISION, dtype=torch.float16)
+        processor, model = load_speech_stack()
         model.to("cuda")
         model.eval()
     except Exception as exc:

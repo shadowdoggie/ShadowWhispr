@@ -133,19 +133,29 @@ try {
     }
 
     # Prove the engine really starts before declaring setup finished: launch the
-    # worker exactly like the app does and wait for its ready message.
+    # worker exactly like the app does and wait for its ready message. Freshly
+    # downloaded model files can be briefly locked by antivirus scanning, so a
+    # failed first check gets one more chance after a cool-down.
     Write-Host "Verifying the speech engine starts (this can take a minute)..."
     $workerPath = Join-Path $repoRoot "stt\worker.py"
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $venvPython
-    $psi.Arguments = "`"$workerPath`" --server"
-    $psi.WorkingDirectory = $repoRoot
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardInput = $true
-    $psi.UseShellExecute = $false
-    $proc = [System.Diagnostics.Process]::Start($psi)
-    $readyLine = $proc.StandardOutput.ReadLine()
-    try { $proc.Kill() } catch {}
+    $readyLine = $null
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $venvPython
+        $psi.Arguments = "`"$workerPath`" --server"
+        $psi.WorkingDirectory = $repoRoot
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardInput = $true
+        $psi.UseShellExecute = $false
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $readyLine = $proc.StandardOutput.ReadLine()
+        try { $proc.Kill() } catch {}
+        if ($readyLine -match '"ready":true') { break }
+        if ($attempt -lt 2) {
+            Write-Host "The engine did not start on the first check. Waiting 15 seconds and trying once more..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 15
+        }
+    }
     if (-not $readyLine -or $readyLine -notmatch '"ready":true') {
         throw "The speech engine could not start. It reported: $readyLine"
     }
