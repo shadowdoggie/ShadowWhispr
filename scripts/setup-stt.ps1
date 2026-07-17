@@ -7,6 +7,10 @@
     If Python 3.12 is not installed, it is installed automatically (per-user,
     no admin) via winget, falling back to the official python.org installer.
     Requires an NVIDIA GPU.
+
+    Everything is logged to setup-log.txt next to the app. On failure the
+    window stays open with the error instead of closing, and download steps
+    retry automatically before giving up.
 #>
 [CmdletBinding()]
 param()
@@ -17,6 +21,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $venvPath = Join-Path $repoRoot ".venv"
 $venvPython = Join-Path $venvPath "Scripts\python.exe"
 $requirementsPath = Join-Path $repoRoot "stt\requirements.txt"
+$logPath = Join-Path $repoRoot "setup-log.txt"
 
 # Version used if we have to download Python ourselves.
 $PythonVersion = "3.12.8"
@@ -63,73 +68,107 @@ function Install-Python312 {
     Remove-Item -LiteralPath $installer -ErrorAction SilentlyContinue
 }
 
-# --- Make sure we have a Python 3.12 to build the venv with -----------------
-if (-not (Test-Path -LiteralPath $venvPython)) {
-    $python = Resolve-Python312
-    if (-not $python) {
-        Install-Python312
+# Downloads fail on flaky connections; retry them before giving up.
+function Invoke-WithRetry {
+    param(
+        [scriptblock]$Action,
+        [string]$Description,
+        [int]$Attempts = 3
+    )
+    for ($i = 1; $i -le $Attempts; $i++) {
+        & $Action
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($i -lt $Attempts) {
+            Write-Host ""
+            Write-Host "$Description failed (attempt $i of $Attempts). Retrying in 10 seconds..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+        }
+    }
+    throw "$Description failed after $Attempts attempts. Check your internet connection, then run setup again."
+}
+
+try { Start-Transcript -Path $logPath | Out-Null } catch {}
+
+try {
+    # --- Make sure we have a Python 3.12 to build the venv with -------------
+    if (-not (Test-Path -LiteralPath $venvPython)) {
         $python = Resolve-Python312
-    }
-    if (-not $python) {
-        throw "Could not find or install Python 3.12 automatically. Please install it from https://www.python.org/downloads/ and run this again."
+        if (-not $python) {
+            Install-Python312
+            $python = Resolve-Python312
+        }
+        if (-not $python) {
+            throw "Could not find or install Python 3.12 automatically. Please install it from https://www.python.org/downloads/ and run this again."
+        }
+
+        Write-Host "Creating the local Python environment..."
+        $pythonExe = $python[0]
+        $pythonArgs = @()
+        if ($python.Count -gt 1) { $pythonArgs = $python[1..($python.Count - 1)] }
+        & $pythonExe @pythonArgs -m venv $venvPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not create .venv with Python 3.12."
+        }
     }
 
-    Write-Host "Creating the local Python environment..."
-    $pythonExe = $python[0]
-    $pythonArgs = @()
-    if ($python.Count -gt 1) { $pythonArgs = $python[1..($python.Count - 1)] }
-    & $pythonExe @pythonArgs -m venv $venvPath
+    Write-Host "Installing Parakeet v3 and CUDA support (this downloads ~2-3 GB)..."
+    Invoke-WithRetry -Description "Updating pip" -Action {
+        & $venvPython -m pip install --upgrade pip wheel
+    }
+
+    Invoke-WithRetry -Description "Installing the speech-to-text packages" -Action {
+        & $venvPython -m pip install --requirement $requirementsPath
+    }
+
+    & $venvPython -c "import torch; assert torch.cuda.is_available(), 'CUDA is unavailable'; print('CUDA ready:', torch.cuda.get_device_name(0))"
     if ($LASTEXITCODE -ne 0) {
-        throw "Could not create .venv with Python 3.12."
+        throw "PyTorch cannot use the NVIDIA GPU. Check that you have an NVIDIA GPU and current driver, then run this again."
     }
+
+    # The revision here must match MODEL_REVISION in stt\worker.py - the worker
+    # runs offline and loads exactly this snapshot from the local cache.
+    Write-Host "Downloading the Parakeet speech model (about 2.5 GB, one-time)..."
+    Invoke-WithRetry -Description "Downloading the speech model" -Action {
+        & $venvPython -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/parakeet-tdt-0.6b-v3', revision='7c35754d166cca382ad1e53e68b01e7c575f3a1d')"
+    }
+
+    # Prove the engine really starts before declaring setup finished: launch the
+    # worker exactly like the app does and wait for its ready message.
+    Write-Host "Verifying the speech engine starts (this can take a minute)..."
+    $workerPath = Join-Path $repoRoot "stt\worker.py"
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $venvPython
+    $psi.Arguments = "`"$workerPath`" --server"
+    $psi.WorkingDirectory = $repoRoot
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardInput = $true
+    $psi.UseShellExecute = $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $readyLine = $proc.StandardOutput.ReadLine()
+    try { $proc.Kill() } catch {}
+    if (-not $readyLine -or $readyLine -notmatch '"ready":true') {
+        throw "The speech engine could not start. It reported: $readyLine"
+    }
+    Write-Host "Speech engine verified."
+
+    # Written last: the app treats setup as finished only when this file exists,
+    # so an interrupted setup is retried instead of half-loading.
+    Set-Content -LiteralPath (Join-Path $venvPath "setup-complete") -Value "ok" -Encoding ascii
+
+    Write-Host ""
+    Write-Host "Speech-to-text setup is ready. You can close this window and use ShadowWhispr."
+    try { Stop-Transcript | Out-Null } catch {}
 }
-
-Write-Host "Installing Parakeet v3 and CUDA support (this downloads ~2-3 GB)..."
-& $venvPython -m pip install --upgrade pip wheel
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not update pip in .venv."
+catch {
+    Write-Host ""
+    Write-Host "SETUP FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "A full log was saved to: $logPath" -ForegroundColor Yellow
+    Write-Host "The most common cause is an unstable internet connection."
+    Write-Host "Click 'Set up speech now' in ShadowWhispr to try again - it resumes where it left off."
+    try { Stop-Transcript | Out-Null } catch {}
+    if (-not $env:SHADOWWHISPR_SETUP_NOPAUSE) {
+        try { [void](Read-Host "Press Enter to close this window") } catch {}
+    }
+    exit 1
 }
-
-& $venvPython -m pip install --requirement $requirementsPath
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not install the speech-to-text requirements."
-}
-
-& $venvPython -c "import torch; assert torch.cuda.is_available(), 'CUDA is unavailable'; print('CUDA ready:', torch.cuda.get_device_name(0))"
-if ($LASTEXITCODE -ne 0) {
-    throw "PyTorch cannot use the NVIDIA GPU. Check that you have an NVIDIA GPU and current driver, then run this again."
-}
-
-# The revision here must match MODEL_REVISION in stt\worker.py — the worker
-# runs offline and loads exactly this snapshot from the local cache.
-Write-Host "Downloading the Parakeet speech model (about 2.5 GB, one-time)..."
-& $venvPython -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/parakeet-tdt-0.6b-v3', revision='7c35754d166cca382ad1e53e68b01e7c575f3a1d')"
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not download the Parakeet speech model. Check your internet connection, then run this again."
-}
-
-# Prove the engine really starts before declaring setup finished: launch the
-# worker exactly like the app does and wait for its ready message.
-Write-Host "Verifying the speech engine starts (this can take a minute)..."
-$workerPath = Join-Path $repoRoot "stt\worker.py"
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = $venvPython
-$psi.Arguments = "`"$workerPath`" --server"
-$psi.WorkingDirectory = $repoRoot
-$psi.RedirectStandardOutput = $true
-$psi.RedirectStandardInput = $true
-$psi.UseShellExecute = $false
-$proc = [System.Diagnostics.Process]::Start($psi)
-$readyLine = $proc.StandardOutput.ReadLine()
-try { $proc.Kill() } catch {}
-if (-not $readyLine -or $readyLine -notmatch '"ready":true') {
-    throw "The speech engine could not start. It reported: $readyLine"
-}
-Write-Host "Speech engine verified."
-
-# Written last: the app treats setup as finished only when this file exists,
-# so an interrupted setup is retried instead of half-loading.
-Set-Content -LiteralPath (Join-Path $venvPath "setup-complete") -Value "ok" -Encoding ascii
-
-Write-Host ""
-Write-Host "Speech-to-text setup is ready. You can close this window and use ShadowWhispr."

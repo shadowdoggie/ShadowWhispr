@@ -90,7 +90,7 @@ public partial class MainWindow : Window
             _overlay.SetReady();
             SetupRunButton.IsEnabled = true;
             SetupStatus.Text = _setupAttempted
-                ? "Setup didn't finish. Check the PowerShell window for errors, then try again."
+                ? "Setup didn't finish. The error stays visible in the PowerShell window and is saved to setup-log.txt in the app folder. Click to try again — it resumes where it left off."
                 : string.Empty;
             SetupBanner.Visibility = Visibility.Visible;
         }

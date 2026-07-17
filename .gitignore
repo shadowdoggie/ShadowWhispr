@@ -11,6 +11,7 @@ obj/
 *.suo
 *.wav
 *.log
+setup-log.txt
 __pycache__/
 *.pyc
 .pytest_cache/
