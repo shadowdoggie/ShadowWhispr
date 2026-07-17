@@ -261,7 +261,6 @@
                                     <ComboBoxItem Content="Claude" />
                                     <ComboBoxItem Content="Codex" />
                                     <ComboBoxItem Content="Gemini" />
-                                    <ComboBoxItem Content="Kimi" />
                                 </ComboBox>
                                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                     <Button x:Name="LoginButton" Content="Login" Padding="13,6" MinHeight="32" FontSize="12"
@@ -353,16 +352,25 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="26" Height="26" CornerRadius="13" Background="#1C66D39A" Margin="0,0,9,0">
-                            <TextBlock Text="✓" Foreground="{StaticResource SuccessBrush}" FontSize="13"
-                                       FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <TextBlock Text="Audio is deleted immediately after transcription."
-                                   Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center" />
+                    <StackPanel VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Border Width="26" Height="26" CornerRadius="13" Background="#1C66D39A" Margin="0,0,9,0">
+                                <TextBlock Text="✓" Foreground="{StaticResource SuccessBrush}" FontSize="13"
+                                           FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="Audio is deleted immediately after transcription."
+                                       Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <CheckBox x:Name="AutoUpdateCheck" Content="Automatically install updates"
+                                      FontSize="12" VerticalAlignment="Center"
+                                      Checked="AutoUpdateToggled" Unchecked="AutoUpdateToggled" />
+                            <TextBlock x:Name="UpdateStatus" Margin="12,0,0,0" Foreground="{StaticResource MutedBrush}"
+                                       FontSize="11" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        </StackPanel>
                     </StackPanel>
                     <Button x:Name="SaveButton" Grid.Column="1" Content="Save settings" Padding="20,10"
-                            Click="SaveClicked" />
+                            VerticalAlignment="Top" Click="SaveClicked" />
                 </Grid>
             </Grid>
         </ScrollViewer>

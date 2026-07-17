@@ -11,7 +11,6 @@ public sealed class AiProviderDiscoveryTests
     [InlineData(AiProviderService.Claude, 4)]
     [InlineData(AiProviderService.Codex, 1)]
     [InlineData(AiProviderService.Gemini, 2)]
-    [InlineData(AiProviderService.Kimi, 3)]
     public async Task DiscoversSignedInProviderModels(string provider, int minimumCount)
     {
         Assert.True(_service.IsCliAvailable(provider), $"{provider} CLI is missing");

@@ -9,7 +9,6 @@ public sealed class LiveAiProviderTests
     [InlineData(AiProviderService.Claude)]
     [InlineData(AiProviderService.Codex)]
     [InlineData(AiProviderService.Gemini)]
-    [InlineData(AiProviderService.Kimi)]
     [Trait("Category", "Live")]
     public async Task SignedInProviderCanCleanText(string provider)
     {
@@ -22,7 +21,6 @@ public sealed class LiveAiProviderTests
             AiProviderService.Claude => models.First(item => item.Id == "claude-sonnet-5"),
             AiProviderService.Codex => models.FirstOrDefault(item => item.Id.Contains("mini")) ?? models[0],
             AiProviderService.Gemini => models.First(item => item.DisplayName.Contains("Flash")),
-            AiProviderService.Kimi => models.FirstOrDefault(item => item.Id.EndsWith("/k3")) ?? models[0],
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
         var effort = model.ReasoningLevels.Contains("low") ? "low" : model.DefaultReasoningLevel;

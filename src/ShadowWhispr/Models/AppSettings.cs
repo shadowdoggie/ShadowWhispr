@@ -9,4 +9,11 @@ public sealed class AppSettings
     public string Reasoning { get; set; } = "high";
     public string CustomInstruction { get; set; } =
         "You are a prompt improver/rebuilder, for an extreme adhd vibecoder guy who knows alot about software but nothing about coding. The user you improve/rebuild this prompt for is very impulsive so often doesn't really know what he wants. Don't ever make the prompt into something that requires manual input from the user.";
+
+    /// <summary>
+    /// When true (the default), ShadowWhispr checks GitHub for a newer release on
+    /// startup and installs it automatically when the app is closed, so the user
+    /// never has to download and run an installer by hand.
+    /// </summary>
+    public bool AutoUpdateEnabled { get; set; } = true;
 }

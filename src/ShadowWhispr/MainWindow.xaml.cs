@@ -26,6 +26,8 @@ public partial class MainWindow : Window
     private readonly TonePlayer _tones = new();
     private readonly TextInsertionService _inserter = new();
     private readonly OverlayWindow _overlay = new();
+    private readonly UpdateService _updates = new();
+    private string? _pendingInstallerPath;
 
     private AppSettings _settings = new();
     private TextInsertionTarget _insertionTarget;
@@ -73,6 +75,61 @@ public partial class MainWindow : Window
 
         await RefreshModelsAsync(_settings.ModelId);
         _ = WarmSpeechEngineAsync(_lifetime.Token);
+        _ = CheckForUpdatesAsync(_lifetime.Token);
+    }
+
+    /// <summary>
+    /// Checks GitHub for a newer release and, when auto-update is on, downloads
+    /// and verifies the installer in the background. The verified installer runs
+    /// silently on app close (OnClosing), so the user is never interrupted.
+    /// </summary>
+    private async Task CheckForUpdatesAsync(CancellationToken cancellationToken)
+    {
+        if (!_settings.AutoUpdateEnabled)
+        {
+            AppLog.Write("Auto-update disabled; skipping update check");
+            return;
+        }
+
+        try
+        {
+            var update = await _updates.CheckForUpdateAsync(cancellationToken);
+            if (update is null) return;
+
+            SetUpdateStatus($"Downloading update {update.Tag}…");
+            var installerPath = await _updates.DownloadInstallerAsync(update, cancellationToken);
+            if (cancellationToken.IsCancellationRequested) return;
+
+            if (installerPath is null)
+            {
+                SetUpdateStatus("Update download failed — see app-log.txt");
+                return;
+            }
+
+            _pendingInstallerPath = installerPath;
+            SetUpdateStatus($"Update {update.Tag} ready — installs when you close ShadowWhispr");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            AppLog.Write("Update flow failed", ex);
+        }
+    }
+
+    private void SetUpdateStatus(string text) => Dispatcher.Invoke(() => UpdateStatus.Text = text);
+
+    private void AutoUpdateToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        if (_settings.AutoUpdateEnabled && _pendingInstallerPath is null)
+        {
+            _ = CheckForUpdatesAsync(_lifetime?.Token ?? default);
+        }
+        else if (!_settings.AutoUpdateEnabled)
+        {
+            AppLog.Write("Auto-update turned off by user");
+        }
     }
 
     private async Task WarmSpeechEngineAsync(CancellationToken cancellationToken)
@@ -233,6 +290,7 @@ public partial class MainWindow : Window
         SelectComboText(ProviderCombo, _settings.Provider);
         InstructionBox.Text = _settings.CustomInstruction;
         AiOptions.IsEnabled = _settings.AiEnabled;
+        AutoUpdateCheck.IsChecked = _settings.AutoUpdateEnabled;
         _uiReady = true;
     }
 
@@ -314,7 +372,6 @@ public partial class MainWindow : Window
         AuthStatus.Text = provider switch
         {
             AiProviderService.Gemini => "Login uses Google Antigravity",
-            AiProviderService.Kimi => "Kimi supports login; its tool has no logout",
             _ => $"Login uses your {provider} subscription"
         };
     }
@@ -497,6 +554,7 @@ public partial class MainWindow : Window
         _settings.CustomInstruction = string.IsNullOrWhiteSpace(InstructionBox.Text)
             ? new AppSettings().CustomInstruction
             : InstructionBox.Text.Trim();
+        _settings.AutoUpdateEnabled = AutoUpdateCheck.IsChecked == true;
     }
 
     private void SaveClicked(object sender, RoutedEventArgs e)
@@ -566,6 +624,13 @@ public partial class MainWindow : Window
         RunLogged("stop speech engine", () => _parakeet.DisposeAsync().AsTask().GetAwaiter().GetResult());
         RunLogged("close overlay", _overlay.Close);
         RunLogged("release token sources", () => { _modelRefresh?.Dispose(); _lifetime?.Dispose(); });
+
+        // Last of all, once our own files are no longer in use, kick off a
+        // downloaded update. The silent installer performs the in-place upgrade.
+        if (_pendingInstallerPath is not null)
+        {
+            RunLogged("launch pending update installer", () => UpdateService.LaunchInstaller(_pendingInstallerPath));
+        }
     }
 
     private static void RunLogged(string step, Action action)

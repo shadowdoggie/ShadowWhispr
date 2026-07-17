@@ -47,7 +47,7 @@ The idea shows up fully formed in my head — then, somewhere between my brain a
 
 So I built the thing I actually needed: **zero friction after setup.** Set your hotkey once, and from then on it's a single reflex — hold, talk, release, done. No window to find. No thought required. The text lands exactly where I was already looking. It's designed to get out of my way completely, because the moment a tool asks me to *think about using it*, I've already lost.
 
-There was one more gap that pushed me to build it: **the other voice tools I found don't let you connect your AI providers through their real logins.** They expect you to paste in an API key and pay per word on top of subscriptions you already have. I didn't want that. ShadowWhispr connects to Claude, ChatGPT/Codex, Google Antigravity, and Kimi through their **official OAuth logins**, so the AI cleanup just uses the plans you're already paying for — no extra keys, no extra billing.
+There was one more gap that pushed me to build it: **the other voice tools I found don't let you connect your AI providers through their real logins.** They expect you to paste in an API key and pay per word on top of subscriptions you already have. I didn't want that. ShadowWhispr connects to Claude, ChatGPT/Codex, and Google Antigravity through their **official OAuth logins**, so the AI cleanup just uses the plans you're already paying for — no extra keys, no extra billing.
 
 If your brain works like mine, I hope it helps you get the words out too. 💜
 
@@ -60,7 +60,7 @@ If your brain works like mine, I hope it helps you get the words out too. 💜
 | 🔒 **Fully local recognition** | NVIDIA Parakeet v3 downloads once and is cached on your PC. Works offline forever after. |
 | 🖊️ **Types anywhere** | Text appears in whatever input is focused — chat, docs, email, code. No copy-pasting. |
 | ⚡ **Your hotkey, your rules** | Click the hotkey field and press any key or modifier combo. Extended keys **F13–F24** supported. |
-| 🤖 **Optional AI cleanup** | Polish rough dictation with your **existing** Claude, ChatGPT/Codex, Google Antigravity, or Kimi login. Off by default. |
+| 🤖 **Optional AI cleanup** | Polish rough dictation with your **existing** Claude, ChatGPT/Codex, or Google Antigravity login. Off by default. |
 
 ---
 
@@ -90,11 +90,8 @@ Dictation is rarely perfect on the first pass. ShadowWhispr can optionally send 
 - **Claude** (Anthropic)
 - **ChatGPT / Codex** (OpenAI)
 - **Google Antigravity**
-- **Kimi**
 
 Login and Logout run through each provider's official CLI tool. ShadowWhispr never sees or stores your credentials — they live inside the provider's own tool.
-
-> The installed Kimi tool supports login but does not expose a logout command.
 
 ### ⭐ Recommended models for the best experience
 

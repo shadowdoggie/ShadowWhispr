@@ -13,9 +13,8 @@ public sealed partial class AiProviderService
     public const string Claude = "Claude";
     public const string Codex = "Codex";
     public const string Gemini = "Gemini";
-    public const string Kimi = "Kimi";
 
-    public static IReadOnlyList<string> Providers { get; } = [Claude, Codex, Gemini, Kimi];
+    public static IReadOnlyList<string> Providers { get; } = [Claude, Codex, Gemini];
 
     private static readonly IReadOnlyList<AiModelOption> ClaudeModels =
     [
@@ -30,13 +29,11 @@ public sealed partial class AiProviderService
 
     private readonly TimeSpan _commandTimeout;
     private readonly string _isolatedWorkDirectory;
-    private readonly string _emptySkillsDirectory;
 
     public AiProviderService(TimeSpan? commandTimeout = null)
     {
         _commandTimeout = commandTimeout ?? TimeSpan.FromMinutes(5);
         _isolatedWorkDirectory = Path.Combine(Path.GetTempPath(), "ShadowWhispr", "ai-workspace");
-        _emptySkillsDirectory = Path.Combine(_isolatedWorkDirectory, "empty-skills");
     }
 
     public bool IsCliAvailable(string provider)
@@ -50,7 +47,6 @@ public sealed partial class AiProviderService
         Claude => "claude auth login --claudeai",
         Codex => "codex login",
         Gemini => "agy (opens OAuth onboarding when signed out)",
-        Kimi => "kimi login",
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
 
@@ -69,7 +65,6 @@ public sealed partial class AiProviderService
             // agy has no auth subcommand. Its official first-run onboarding launches Google OAuth
             // automatically when no Antigravity session is available.
             Gemini => Array.Empty<string>(),
-            Kimi => new[] { "login" },
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
 
@@ -94,8 +89,6 @@ public sealed partial class AiProviderService
         {
             Claude => new[] { "auth", "logout" },
             Codex => new[] { "logout" },
-            Kimi => throw new AiProviderException(
-                "Kimi Code's official CLI does not provide a logout command."),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
 
@@ -104,7 +97,7 @@ public sealed partial class AiProviderService
             arguments,
             standardInput: null,
             workingDirectory: _isolatedWorkDirectory,
-            environment: normalizedProvider == Kimi ? KimiEnvironment(reasoning: null) : null,
+            environment: null,
             cancellationToken);
 
         EnsureSuccess(normalizedProvider, result);
@@ -120,7 +113,6 @@ public sealed partial class AiProviderService
             Claude => ClaudeModels,
             Codex => await DiscoverCodexModelsAsync(cancellationToken),
             Gemini => await DiscoverGeminiModelsAsync(cancellationToken),
-            Kimi => await DiscoverKimiModelsAsync(cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }
@@ -162,7 +154,6 @@ public sealed partial class AiProviderService
             Claude => await ProcessWithClaudeAsync(modelId, reasoning, prompt, cancellationToken),
             Codex => await ProcessWithCodexAsync(modelId, reasoning, prompt, cancellationToken),
             Gemini => await ProcessWithGeminiAsync(modelId, reasoning, prompt, cancellationToken),
-            Kimi => await ProcessWithKimiAsync(modelId, reasoning, prompt, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
 
@@ -306,91 +297,6 @@ public sealed partial class AiProviderService
             .ToArray();
     }
 
-    private async Task<IReadOnlyList<AiModelOption>> DiscoverKimiModelsAsync(CancellationToken cancellationToken)
-    {
-        var result = await RunAsync(
-            GetCommand(Kimi),
-            ["provider", "list", "--json"],
-            standardInput: null,
-            workingDirectory: _isolatedWorkDirectory,
-            environment: KimiEnvironment(reasoning: null),
-            cancellationToken);
-
-        EnsureSuccess(Kimi, result);
-        try
-        {
-            using var document = JsonDocument.Parse(result.StandardOutput);
-            var root = document.RootElement;
-            if (!root.TryGetProperty("providers", out var providers) ||
-                providers.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("models", out var models) ||
-                models.ValueKind != JsonValueKind.Object)
-            {
-                throw new AiProviderException("Kimi returned an unexpected provider list.");
-            }
-
-            var oauthProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var provider in providers.EnumerateObject())
-            {
-                var value = provider.Value;
-                var type = GetString(value, "type");
-                if (type?.Equals("kimi", StringComparison.OrdinalIgnoreCase) == true &&
-                    value.TryGetProperty("oauth", out _))
-                {
-                    oauthProviders.Add(provider.Name);
-                }
-            }
-
-            var discovered = new List<AiModelOption>();
-            foreach (var modelProperty in models.EnumerateObject())
-            {
-                var model = modelProperty.Value;
-                var providerId = GetString(model, "provider");
-                if (providerId is null || !oauthProviders.Contains(providerId))
-                {
-                    continue;
-                }
-
-                var efforts = ReadStringArray(model, "supportEfforts");
-                var capabilities = ReadStringArray(model, "capabilities");
-                if (efforts.Count == 0)
-                {
-                    if (capabilities.Contains("always_thinking", StringComparer.OrdinalIgnoreCase))
-                    {
-                        efforts.Add("on");
-                    }
-                    else if (capabilities.Contains("thinking", StringComparer.OrdinalIgnoreCase))
-                    {
-                        efforts.AddRange(["off", "on"]);
-                    }
-                }
-
-                var defaultEffort = GetString(model, "defaultEffort") ??
-                                    (efforts.Contains("on", StringComparer.OrdinalIgnoreCase)
-                                        ? "on"
-                                        : efforts.FirstOrDefault());
-                discovered.Add(new AiModelOption(
-                    Kimi,
-                    modelProperty.Name,
-                    GetString(model, "displayName") ?? modelProperty.Name,
-                    SortReasoningLevels(efforts),
-                    defaultEffort));
-            }
-
-            return discovered
-                .OrderBy(model => model.DisplayName, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-        }
-        catch (AiProviderException)
-        {
-            throw;
-        }
-        catch (JsonException exception)
-        {
-            throw new AiProviderException("Kimi returned an unreadable provider list.", exception);
-        }
-    }
-
     private async Task<string> ProcessWithClaudeAsync(
         string modelId,
         string? reasoning,
@@ -530,54 +436,6 @@ public sealed partial class AiProviderService
 
         EnsureSuccess(Gemini, result);
         return result.StandardOutput;
-    }
-
-    private async Task<string> ProcessWithKimiAsync(
-        string modelId,
-        string? reasoning,
-        string prompt,
-        CancellationToken cancellationToken)
-    {
-        var result = await RunAsync(
-            GetCommand(Kimi),
-            [
-                "--model", modelId,
-                "--prompt", prompt,
-                "--output-format", "stream-json",
-                "--skills-dir", _emptySkillsDirectory
-            ],
-            standardInput: null,
-            workingDirectory: _isolatedWorkDirectory,
-            environment: KimiEnvironment(reasoning),
-            cancellationToken);
-
-        EnsureSuccess(Kimi, result);
-        var finalText = string.Empty;
-        foreach (var line in SplitLines(result.StandardOutput))
-        {
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                continue;
-            }
-
-            try
-            {
-                using var document = JsonDocument.Parse(line);
-                var root = document.RootElement;
-                if (GetString(root, "role")?.Equals("assistant", StringComparison.OrdinalIgnoreCase) == true &&
-                    root.TryGetProperty("content", out var content) &&
-                    content.ValueKind == JsonValueKind.String)
-                {
-                    finalText = content.GetString() ?? finalText;
-                }
-            }
-            catch (JsonException)
-            {
-                // Keep parsing later JSONL records so only the final assistant text is returned.
-            }
-        }
-
-        return finalText;
     }
 
     private async Task<ProcessResult> RunAsync(
@@ -753,7 +611,6 @@ public sealed partial class AiProviderService
         Claude => "claude",
         Codex => "codex",
         Gemini => "agy",
-        Kimi => "kimi",
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
 
@@ -781,25 +638,9 @@ public sealed partial class AiProviderService
         return null;
     }
 
-    private static IReadOnlyDictionary<string, string?> KimiEnvironment(string? reasoning)
-    {
-        var environment = new Dictionary<string, string?>
-        {
-            ["KIMI_CODE_NO_AUTO_UPDATE"] = "1"
-        };
-        if (!string.IsNullOrWhiteSpace(reasoning) &&
-            !reasoning.Equals("on", StringComparison.OrdinalIgnoreCase))
-        {
-            environment["KIMI_MODEL_THINKING_EFFORT"] = reasoning.ToLowerInvariant();
-        }
-
-        return environment;
-    }
-
     private void EnsureIsolatedDirectories()
     {
         Directory.CreateDirectory(_isolatedWorkDirectory);
-        Directory.CreateDirectory(_emptySkillsDirectory);
     }
 
     private static void AddOption(ICollection<string> arguments, string name, string? value)
@@ -818,25 +659,6 @@ public sealed partial class AiProviderService
         return element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
-    }
-
-    private static List<string> ReadStringArray(JsonElement element, string propertyName)
-    {
-        var values = new List<string>();
-        if (!element.TryGetProperty(propertyName, out var array) || array.ValueKind != JsonValueKind.Array)
-        {
-            return values;
-        }
-
-        foreach (var item in array.EnumerateArray())
-        {
-            if (item.ValueKind == JsonValueKind.String)
-            {
-                AddUnique(values, item.GetString());
-            }
-        }
-
-        return values;
     }
 
     private static void AddUnique(ICollection<string> values, string? value)
