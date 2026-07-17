@@ -46,6 +46,8 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         _hotkey.Pressed += OnHotkeyPressed;
         _hotkey.Released += OnHotkeyReleased;
+        _audio.RecordingFailed += (_, ex) => AppLog.Write("Audio recording failed", ex);
+        _tones.PlaybackFailed += (_, ex) => AppLog.Write("Cue tone playback failed", ex);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -65,6 +67,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            AppLog.Write("Starting the global hotkey hook failed", ex);
             SetError($"Hotkey error: {ex.Message}");
         }
 
@@ -99,7 +102,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Write($"Speech engine start failed: {ex.Message}");
+            AppLog.Write("Speech engine start failed", ex);
             SetEngine("Parakeet needs attention", ErrorRed);
             SetError(ex.Message);
             if (SetupBanner.Visibility == Visibility.Visible)
@@ -114,6 +117,7 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrEmpty(_setupScriptPath) || !File.Exists(_setupScriptPath))
         {
+            AppLog.Write($"Speech setup script not found at: {_setupScriptPath ?? "(no path)"}");
             SetupStatus.Text = "Setup script not found — please reinstall ShadowWhispr.";
             return;
         }
@@ -139,6 +143,7 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { return; }
         catch (Exception ex)
         {
+            AppLog.Write("Could not launch the speech setup script", ex);
             SetupStatus.Text = $"Could not start setup: {ex.Message}";
             SetupRunButton.IsEnabled = true;
             return;
@@ -253,6 +258,7 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
+            AppLog.Write($"{provider} login failed: {ex.Message}");
             AuthStatus.Text = ex.Message;
         }
         finally
@@ -287,6 +293,7 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
+            AppLog.Write($"{provider} logout failed: {ex.Message}");
             AuthStatus.Text = ex.Message;
         }
         finally
@@ -336,6 +343,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             if (generation != _modelRefreshGeneration) return;
+            AppLog.Write($"Discovering {provider} models failed: {ex.Message}");
             ModelCombo.ItemsSource = Array.Empty<AiModelOption>();
             ReasoningCombo.ItemsSource = Array.Empty<string>();
             RunStatus.Text = ex.Message;
@@ -487,14 +495,23 @@ public partial class MainWindow : Window
         if (ModelCombo.SelectedItem is AiModelOption model) _settings.ModelId = model.Id;
         _settings.Reasoning = ReasoningCombo.SelectedItem as string ?? string.Empty;
         _settings.CustomInstruction = string.IsNullOrWhiteSpace(InstructionBox.Text)
-            ? "Fix punctuation and obvious speech-to-text mistakes while preserving my meaning and tone."
+            ? new AppSettings().CustomInstruction
             : InstructionBox.Text.Trim();
     }
 
     private void SaveClicked(object sender, RoutedEventArgs e)
     {
         ReadUiIntoSettings();
-        _settingsService.Save(_settings);
+        try
+        {
+            _settingsService.Save(_settings);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("Saving settings failed", ex);
+            SetError($"Could not save settings: {ex.Message}");
+            return;
+        }
         SaveButton.Content = "Saved";
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
         timer.Tick += (_, _) => { SaveButton.Content = "Save settings"; timer.Stop(); };
@@ -538,16 +555,28 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        ReadUiIntoSettings();
-        _settingsService.Save(_settings);
-        _lifetime?.Cancel();
-        _modelRefresh?.Cancel();
-        _hotkey.Dispose();
-        _tones.Dispose();
-        _audio.Dispose();
-        _parakeet.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _overlay.Close();
-        _modelRefresh?.Dispose();
-        _lifetime?.Dispose();
+        AppLog.Write("App closing");
+        // Each shutdown step is isolated and logged so one failure can neither
+        // hide from the log nor prevent the remaining cleanup from running.
+        RunLogged("save settings on close", () => { ReadUiIntoSettings(); _settingsService.Save(_settings); });
+        RunLogged("cancel pending work", () => { _lifetime?.Cancel(); _modelRefresh?.Cancel(); });
+        RunLogged("stop hotkey hook", _hotkey.Dispose);
+        RunLogged("stop tone player", _tones.Dispose);
+        RunLogged("stop audio recorder", _audio.Dispose);
+        RunLogged("stop speech engine", () => _parakeet.DisposeAsync().AsTask().GetAwaiter().GetResult());
+        RunLogged("close overlay", _overlay.Close);
+        RunLogged("release token sources", () => { _modelRefresh?.Dispose(); _lifetime?.Dispose(); });
+    }
+
+    private static void RunLogged(string step, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write($"Shutdown step failed: {step}", ex);
+        }
     }
 }

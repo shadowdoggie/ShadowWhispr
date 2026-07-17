@@ -628,6 +628,7 @@ public sealed partial class AiProviderService
         }
         catch (Win32Exception exception)
         {
+            AppLog.Write($"AI CLI could not start: {fileName} ({exception.Message})");
             throw new AiProviderException(
                 $"{fileName} is not installed or is not available on PATH.",
                 exception);
@@ -647,6 +648,7 @@ public sealed partial class AiProviderService
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             TryKill(process);
+            AppLog.Write($"AI CLI timed out after {_commandTimeout.TotalMinutes:0.#} minutes: {fileName}");
             throw new AiProviderException($"{fileName} did not finish within {_commandTimeout.TotalMinutes:0.#} minutes.");
         }
         catch
@@ -719,6 +721,7 @@ public sealed partial class AiProviderService
             details = LastUsefulLine(result.StandardOutput);
         }
 
+        AppLog.Write($"AI CLI failed: {provider} exited with code {result.ExitCode} ({(string.IsNullOrWhiteSpace(details) ? "no output" : details)})");
         throw new AiProviderException(string.IsNullOrWhiteSpace(details)
             ? $"{provider} exited with code {result.ExitCode}. Sign in through its CLI and try again."
             : $"{provider}: {details}");

@@ -41,4 +41,8 @@ public static class AppLog
         }
         catch { }
     }
+
+    /// <summary>Logs a message plus the exception's full text and stack trace.</summary>
+    public static void Write(string message, Exception exception) =>
+        Write($"{message}{Environment.NewLine}{exception}");
 }

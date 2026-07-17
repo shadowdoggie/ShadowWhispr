@@ -413,6 +413,9 @@ public sealed class GlobalHotkeyService : IDisposable
         }
         catch (Exception ex)
         {
+            // If startup already completed, this exception would otherwise be
+            // lost with the background thread — the log is its only trace.
+            AppLog.Write("Global hotkey hook thread failed", ex);
             _started?.TrySetException(ex);
         }
         finally

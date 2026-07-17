@@ -96,8 +96,9 @@ public sealed class AudioRecorderService : IDisposable, IAsyncDisposable
                 _stopCompletion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 waveIn.StartRecording();
             }
-            catch
+            catch (Exception startException)
             {
+                AppLog.Write("Starting the microphone recording failed", startException);
                 _waveIn = null;
                 _writer = null;
                 _currentFilePath = null;
@@ -253,6 +254,7 @@ public sealed class AudioRecorderService : IDisposable, IAsyncDisposable
 
         if (exception is not null)
         {
+            AppLog.Write("Microphone capture stopped with an error", exception);
             if (filePath is not null)
             {
                 TryDelete(filePath);

@@ -26,8 +26,9 @@ public sealed class SettingsService
                 ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), JsonOptions) ?? new AppSettings()
                 : new AppSettings();
         }
-        catch
+        catch (Exception exception)
         {
+            AppLog.Write($"Settings file could not be read ({_path}); using defaults", exception);
             return new AppSettings();
         }
     }
