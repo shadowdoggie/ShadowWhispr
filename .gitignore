@@ -12,6 +12,7 @@ obj/
 *.wav
 *.log
 setup-log.txt
+app-log*.txt
 speech-model/
 __pycache__/
 *.pyc

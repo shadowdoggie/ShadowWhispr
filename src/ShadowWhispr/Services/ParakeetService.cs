@@ -116,6 +116,7 @@ public sealed class ParakeetService : IAsyncDisposable
         }
         catch (Exception exception)
         {
+            AppLog.Write($"Parakeet worker start failed: {exception.Message} (last stderr: {LastError ?? "none"})");
             LastError = exception.Message;
             await TearDownWorkerAsync(process);
             throw;
@@ -157,6 +158,7 @@ public sealed class ParakeetService : IAsyncDisposable
             }
             catch (Exception exception)
             {
+                AppLog.Write($"Transcription failed: {exception.Message}");
                 if (!responseCompleted)
                 {
                     LastError = exception.Message;

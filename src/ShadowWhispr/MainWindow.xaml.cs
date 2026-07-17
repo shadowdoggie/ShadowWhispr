@@ -50,6 +50,7 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        AppLog.Write($"App started (version {typeof(MainWindow).Assembly.GetName().Version})");
         _lifetime = new CancellationTokenSource();
         _settings = _settingsService.Load();
         ApplySettingsToUi();
@@ -78,6 +79,7 @@ public partial class MainWindow : Window
             SetEngine("Loading Parakeet…", WorkingGold);
             _overlay.SetWorking("Loading speech");
             await _parakeet.StartAsync(cancellationToken);
+            AppLog.Write($"Speech engine ready on {_parakeet.Device}");
             SetupBanner.Visibility = Visibility.Collapsed;
             SetEngine("Parakeet ready · GPU", ReadyGreen);
             if (!_audio.IsRecording && !_busy) _overlay.SetReady();
@@ -85,6 +87,7 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch (SpeechSetupRequiredException ex)
         {
+            AppLog.Write($"Speech setup required (attempted before: {_setupAttempted})");
             _setupScriptPath = ex.SetupScriptPath;
             SetEngine("Speech setup needed", WorkingGold);
             _overlay.SetReady();
@@ -96,6 +99,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            AppLog.Write($"Speech engine start failed: {ex.Message}");
             SetEngine("Parakeet needs attention", ErrorRed);
             SetError(ex.Message);
             if (SetupBanner.Visibility == Visibility.Visible)
@@ -115,6 +119,7 @@ public partial class MainWindow : Window
         }
 
         _setupAttempted = true;
+        AppLog.Write($"Launching speech setup script: {_setupScriptPath}");
         SetupRunButton.IsEnabled = false;
         SetupStatus.Text = "Setting up… follow the PowerShell window (this can take several minutes).";
 
@@ -139,6 +144,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        AppLog.Write("Speech setup script window closed; checking the engine");
         SetupStatus.Text = "Almost done — starting the speech engine (this can take a minute)…";
         await WarmSpeechEngineAsync(_lifetime?.Token ?? default);
     }
@@ -502,6 +508,7 @@ public partial class MainWindow : Window
 
     private void SetError(string message)
     {
+        AppLog.Write($"ERROR shown to user: {message}");
         Dispatcher.Invoke(() =>
         {
             RunStatus.Text = "Error";

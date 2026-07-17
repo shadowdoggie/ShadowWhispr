@@ -75,3 +75,5 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 Type: filesandordirs; Name: "{app}\.venv"
 Type: filesandordirs; Name: "{app}\speech-model"
 Type: files; Name: "{app}\setup-log.txt"
+Type: files; Name: "{app}\app-log.txt"
+Type: files; Name: "{app}\app-log.old.txt"
