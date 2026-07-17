@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -34,6 +36,8 @@ public partial class MainWindow : Window
     private int _modelRefreshGeneration;
     private bool _capturingHotkey;
     private string _hotkeyBeforeCapture = "Right Ctrl";
+    private string? _setupScriptPath;
+    private bool _setupAttempted;
 
     public MainWindow()
     {
@@ -74,15 +78,64 @@ public partial class MainWindow : Window
             SetEngine("Loading Parakeet…", WorkingGold);
             _overlay.SetWorking("Loading speech");
             await _parakeet.StartAsync(cancellationToken);
+            SetupBanner.Visibility = Visibility.Collapsed;
             SetEngine("Parakeet ready · GPU", ReadyGreen);
             if (!_audio.IsRecording && !_busy) _overlay.SetReady();
         }
         catch (OperationCanceledException) { }
+        catch (SpeechSetupRequiredException ex)
+        {
+            _setupScriptPath = ex.SetupScriptPath;
+            SetEngine("Speech setup needed", WorkingGold);
+            _overlay.SetReady();
+            SetupRunButton.IsEnabled = true;
+            SetupStatus.Text = _setupAttempted
+                ? "Setup didn't finish. Check the PowerShell window for errors, then try again."
+                : string.Empty;
+            SetupBanner.Visibility = Visibility.Visible;
+        }
         catch (Exception ex)
         {
             SetEngine("Parakeet needs attention", ErrorRed);
             SetError(ex.Message);
         }
+    }
+
+    private async void SetupRunClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_setupScriptPath) || !File.Exists(_setupScriptPath))
+        {
+            SetupStatus.Text = "Setup script not found — please reinstall ShadowWhispr.";
+            return;
+        }
+
+        _setupAttempted = true;
+        SetupRunButton.IsEnabled = false;
+        SetupStatus.Text = "Setting up… follow the PowerShell window (this can take several minutes).";
+
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                UseShellExecute = true,
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{_setupScriptPath}\"",
+                WorkingDirectory = Path.GetDirectoryName(_setupScriptPath) ?? AppContext.BaseDirectory
+            };
+            using var process = Process.Start(startInfo);
+            if (process is not null)
+                await process.WaitForExitAsync(_lifetime?.Token ?? default);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            SetupStatus.Text = $"Could not start setup: {ex.Message}";
+            SetupRunButton.IsEnabled = true;
+            return;
+        }
+
+        SetupStatus.Text = "Checking the speech engine…";
+        await WarmSpeechEngineAsync(_lifetime?.Token ?? default);
     }
 
     private async void OnHotkeyPressed(object? sender, EventArgs e)

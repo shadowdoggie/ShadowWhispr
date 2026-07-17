@@ -366,5 +366,36 @@
                 </Grid>
             </Grid>
         </ScrollViewer>
+
+        <!-- First-run speech setup overlay (shown only when .venv is missing) -->
+        <Border x:Name="SetupBanner" Visibility="Collapsed" Background="#D60A0D11" Panel.ZIndex="50">
+            <Border Style="{StaticResource Card}" MaxWidth="540" Margin="24"
+                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="ONE-TIME SETUP" Style="{StaticResource Eyebrow}" />
+                    <TextBlock Text="Set up the speech engine" FontSize="21" FontWeight="SemiBold" Margin="0,5,0,0" />
+                    <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="13"
+                               Margin="0,12,0,0" LineHeight="20">
+                        ShadowWhispr needs to download its local speech engine
+                        (about 2–3 GB). This happens once. If Python 3.12 isn't
+                        installed, it will be installed for you automatically — no
+                        admin needed. An NVIDIA GPU is required.
+                    </TextBlock>
+                    <Border Background="#141A1E14" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                            CornerRadius="9" Padding="12,9" Margin="0,14,0,0">
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12">
+                            A PowerShell window will open so you can watch progress. It's
+                            safe to leave it running — it closes itself when finished.
+                        </TextBlock>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Margin="0,20,0,0" VerticalAlignment="Center">
+                        <Button x:Name="SetupRunButton" Content="Set up speech now" Padding="20,11"
+                                FontWeight="SemiBold" Click="SetupRunClicked" />
+                        <TextBlock x:Name="SetupStatus" VerticalAlignment="Center" Margin="16,0,0,0"
+                                   Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </Window>

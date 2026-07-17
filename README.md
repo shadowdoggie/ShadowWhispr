@@ -74,6 +74,8 @@ The **first run** installs the local speech environment and downloads the Parake
 
 > **Tip:** Prefer a proper install? Grab the installer from the [latest release](https://github.com/shadowdoggie/ShadowWhispr/releases/latest).
 
+**First launch (installed app):** the very first time you open ShadowWhispr, it offers a one-time **"Set up speech now"** step. That downloads the local speech engine (~2–3 GB) and, if you don't already have **Python 3.12**, installs it for you automatically — no admin needed. A progress window shows what's happening. After that, launches are instant and offline.
+
 ### Windows may show “Unknown publisher”
 
 > [!IMPORTANT]
@@ -123,7 +125,7 @@ Privacy here isn't a setting you switch on — it's how the app works by default
 - **Windows 10 or 11**
 - **NVIDIA GPU (required)** — see note below
 - **.NET 10 Desktop Runtime**
-- **Python 3.12**
+- **Python 3.12** — installed automatically on first setup if you don't already have it
 - The official provider CLI + an active login for any AI cleanup provider you choose to enable
 
 > [!IMPORTANT]

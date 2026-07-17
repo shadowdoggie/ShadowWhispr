@@ -50,7 +50,7 @@ public sealed class ParakeetService : IAsyncDisposable
         var worker = Path.Combine(projectRoot, "stt", "worker.py");
 
         if (!File.Exists(python))
-            throw new FileNotFoundException("Speech setup is missing. Run scripts\\setup-stt.ps1 first.", python);
+            throw new SpeechSetupRequiredException(ResolveSetupScript(projectRoot, appDirectory));
         if (!File.Exists(worker))
             worker = Path.Combine(appDirectory, "stt", "worker.py");
 
@@ -223,6 +223,20 @@ public sealed class ParakeetService : IAsyncDisposable
             process?.Dispose();
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Locate the one-time speech setup script. Installed builds keep it under
+    /// {app}\scripts; a source checkout keeps it under {repo}\scripts.
+    /// </summary>
+    private static string ResolveSetupScript(string projectRoot, string appDirectory)
+    {
+        foreach (var baseDir in new[] { projectRoot, appDirectory })
+        {
+            var candidate = Path.Combine(baseDir, "scripts", "setup-stt.ps1");
+            if (File.Exists(candidate)) return candidate;
+        }
+        return Path.Combine(appDirectory, "scripts", "setup-stt.ps1");
     }
 
     private static string FindProjectRoot(string start)
