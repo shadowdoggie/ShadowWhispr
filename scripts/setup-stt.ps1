@@ -100,6 +100,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyTorch cannot use the NVIDIA GPU. Check that you have an NVIDIA GPU and current driver, then run this again."
 }
 
+Write-Host "Downloading the Parakeet speech model (about 2.5 GB, one-time)..."
+& $venvPython -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/parakeet-tdt-0.6b-v3')"
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not download the Parakeet speech model. Check your internet connection, then run this again."
+}
+
 Write-Host ""
 Write-Host "Speech-to-text setup is ready. You can close this window and use ShadowWhispr."
-Write-Host "The Parakeet model itself downloads on first transcription."

@@ -98,6 +98,11 @@ public partial class MainWindow : Window
         {
             SetEngine("Parakeet needs attention", ErrorRed);
             SetError(ex.Message);
+            if (SetupBanner.Visibility == Visibility.Visible)
+            {
+                SetupRunButton.IsEnabled = true;
+                SetupStatus.Text = $"The speech engine could not start: {ex.Message}";
+            }
         }
     }
 
@@ -134,7 +139,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        SetupStatus.Text = "Checking the speech engine…";
+        SetupStatus.Text = "Almost done — starting the speech engine (this can take a minute)…";
         await WarmSpeechEngineAsync(_lifetime?.Token ?? default);
     }
 
