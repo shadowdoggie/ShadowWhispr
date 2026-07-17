@@ -20,12 +20,16 @@ jobs:
 
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "10.0.x"
+
+      - name: Run tests
+        shell: pwsh
+        run: dotnet test --configuration Release --filter "FullyQualifiedName!~AiProviderDiscoveryTests"
 
       - name: Work out the version
         id: version
@@ -38,6 +42,9 @@ jobs:
           }
           $v = $v -replace '^v', ''
           if (-not $v) { $v = '0.0.0-dev' }
+          if ($v -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw "Version must look like 1.2.3 or 1.2.3-beta."
+          }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Building version $v"
 
@@ -58,7 +65,7 @@ jobs:
           gh release upload "${{ github.event.release.tag_name }}" "$setup" --clobber
 
       - name: Save the installer as a build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ShadowWhispr-Setup
           path: build/installer/*.exe
