@@ -94,6 +94,16 @@ Login and Logout run through each provider's official CLI tool. ShadowWhispr nev
 
 > The installed Kimi tool supports login but does not expose a logout command.
 
+### ⭐ Recommended models for the best experience
+
+For the cleanest results, these are the models I'd reach for:
+
+| Model | Notes |
+|---|---|
+| **GPT 5.6 Sol** | Use **medium** effort reasoning mode |
+| **Gemini 3.1 Pro** | — |
+| **Claude Opus** | — |
+
 **This is off by default.** With it off, nothing you say ever leaves your machine.
 
 ---
@@ -111,10 +121,13 @@ Privacy here isn't a setting you switch on — it's how the app works by default
 ## 💻 Requirements
 
 - **Windows 10 or 11**
-- **NVIDIA GPU** recommended (for fast, local transcription)
+- **NVIDIA GPU (required)** — see note below
 - **.NET 10 Desktop Runtime**
 - **Python 3.12**
 - The official provider CLI + an active login for any AI cleanup provider you choose to enable
+
+> [!IMPORTANT]
+> **ShadowWhispr runs on NVIDIA hardware only.** Local transcription uses a CUDA build of PyTorch and loads the Parakeet model onto an NVIDIA GPU. **AMD and Intel GPUs are not supported**, and there is no CPU-only fallback — without a working NVIDIA + CUDA setup, the app will not transcribe.
 
 ---
 
