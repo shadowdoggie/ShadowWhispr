@@ -6,7 +6,7 @@ namespace ShadowWhispr.Tests;
 public sealed class AppSettingsTests
 {
     [Fact]
-    public void DefaultCustomInstructionStaysLocked()
+    public void NewInstallStartsWithRequestedCustomInstruction()
     {
         var settings = new AppSettings();
 
