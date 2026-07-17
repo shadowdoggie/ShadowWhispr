@@ -13,9 +13,15 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any
+
+# The setup script pre-downloads the pinned model revision, so the worker
+# loads purely from the local cache. Must be set before importing
+# transformers/huggingface_hub; override with HF_HUB_OFFLINE=0 if needed.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 import numpy as np
 import soundfile as sf
@@ -25,6 +31,9 @@ from transformers import AutoModelForTDT, AutoProcessor
 
 
 MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
+# Exact model revision verified against the pinned transformers commit, so an
+# upstream repo update can never break installed apps.
+MODEL_REVISION = "7c35754d166cca382ad1e53e68b01e7c575f3a1d"
 
 
 def emit(message: dict[str, Any]) -> None:
@@ -96,8 +105,8 @@ def main() -> int:
         if not torch.cuda.is_available():
             raise RuntimeError("An NVIDIA GPU with a working CUDA PyTorch install is required")
 
-        processor = AutoProcessor.from_pretrained(MODEL_ID)
-        model = AutoModelForTDT.from_pretrained(MODEL_ID, dtype=torch.float16)
+        processor = AutoProcessor.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
+        model = AutoModelForTDT.from_pretrained(MODEL_ID, revision=MODEL_REVISION, dtype=torch.float16)
         model.to("cuda")
         model.eval()
     except Exception as exc:

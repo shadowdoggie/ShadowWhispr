@@ -100,8 +100,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyTorch cannot use the NVIDIA GPU. Check that you have an NVIDIA GPU and current driver, then run this again."
 }
 
+# The revision here must match MODEL_REVISION in stt\worker.py — the worker
+# runs offline and loads exactly this snapshot from the local cache.
 Write-Host "Downloading the Parakeet speech model (about 2.5 GB, one-time)..."
-& $venvPython -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/parakeet-tdt-0.6b-v3')"
+& $venvPython -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/parakeet-tdt-0.6b-v3', revision='7c35754d166cca382ad1e53e68b01e7c575f3a1d')"
 if ($LASTEXITCODE -ne 0) {
     throw "Could not download the Parakeet speech model. Check your internet connection, then run this again."
 }
