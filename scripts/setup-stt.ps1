@@ -108,6 +108,25 @@ if ($LASTEXITCODE -ne 0) {
     throw "Could not download the Parakeet speech model. Check your internet connection, then run this again."
 }
 
+# Prove the engine really starts before declaring setup finished: launch the
+# worker exactly like the app does and wait for its ready message.
+Write-Host "Verifying the speech engine starts (this can take a minute)..."
+$workerPath = Join-Path $repoRoot "stt\worker.py"
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $venvPython
+$psi.Arguments = "`"$workerPath`" --server"
+$psi.WorkingDirectory = $repoRoot
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardInput = $true
+$psi.UseShellExecute = $false
+$proc = [System.Diagnostics.Process]::Start($psi)
+$readyLine = $proc.StandardOutput.ReadLine()
+try { $proc.Kill() } catch {}
+if (-not $readyLine -or $readyLine -notmatch '"ready":true') {
+    throw "The speech engine could not start. It reported: $readyLine"
+}
+Write-Host "Speech engine verified."
+
 # Written last: the app treats setup as finished only when this file exists,
 # so an interrupted setup is retried instead of half-loading.
 Set-Content -LiteralPath (Join-Path $venvPath "setup-complete") -Value "ok" -Encoding ascii

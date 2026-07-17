@@ -100,6 +100,23 @@ def transcribe(model: Any, processor: Any, audio_path: Path) -> str:
         del waveform, inputs, output
 
 
+def is_model_cache_miss(exc: BaseException) -> bool:
+    """True when the pinned model files are absent from the local HF cache."""
+    try:
+        from huggingface_hub.errors import LocalEntryNotFoundError
+    except ImportError:
+        LocalEntryNotFoundError = None
+
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if LocalEntryNotFoundError is not None and isinstance(current, LocalEntryNotFoundError):
+            return True
+        current = current.__cause__ or current.__context__
+    return "cached files" in str(exc)
+
+
 def main() -> int:
     try:
         if not torch.cuda.is_available():
@@ -110,7 +127,16 @@ def main() -> int:
         model.to("cuda")
         model.eval()
     except Exception as exc:
-        emit({"type": "ready", "ready": False, "error": str(exc)})
+        # setup_required lets the app reopen the one-time setup panel (which
+        # re-downloads the model) instead of dead-ending on a missing cache.
+        emit(
+            {
+                "type": "ready",
+                "ready": False,
+                "error": str(exc),
+                "setup_required": is_model_cache_miss(exc),
+            }
+        )
         return 1
 
     emit(

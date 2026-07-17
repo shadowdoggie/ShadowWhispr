@@ -89,6 +89,12 @@ public sealed class ParakeetService : IAsyncDisposable
             using var readyMessage = JsonDocument.Parse(firstLine);
             if (!readyMessage.RootElement.TryGetProperty("ready", out var ready) || !ready.GetBoolean())
             {
+                // The worker signals when its model files are missing from the
+                // local cache; reopening setup re-downloads them.
+                if (readyMessage.RootElement.TryGetProperty("setup_required", out var setupRequired) &&
+                    setupRequired.ValueKind == JsonValueKind.True)
+                    throw new SpeechSetupRequiredException(ResolveSetupScript(projectRoot, appDirectory));
+
                 var message = readyMessage.RootElement.TryGetProperty("error", out var error)
                     ? error.GetString()
                     : null;
