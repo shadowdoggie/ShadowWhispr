@@ -114,6 +114,12 @@ For the cleanest results, these are the models I'd reach for:
 
 **This is off by default.** With it off, nothing you say ever leaves your machine.
 
+### ⚡ Fast mode (Codex only)
+
+Codex models offer a faster speed tier. Tick **Fast mode** under the model picker to use it:
+replies come back about **1.5x faster**, but it uses up your Codex usage allowance quicker than
+normal speed. It's **off by default**, and the box only appears for Codex models that offer it.
+
 You can also set a **second hotkey** that always skips cleanup, even while AI cleanup is switched on — hold that one instead and the raw local transcript is typed straight out. Both hotkeys are fully configurable, and the second one is optional (press **Delete** while setting it to clear it).
 
 ---

@@ -31,6 +31,18 @@ will look reasonable and then break on users' machines — do not "simplify" the
   `##SW## percent|message` and `##SWERR## message` markers the app parses for its
   progress screen. `-DetectOnly` reports what would be used and changes nothing.
 
+## AI providers
+
+- Codex "fast mode" is its **priority service tier**, set with
+  `--config service_tier="priority"`. Offer it only for models whose entry in
+  Codex's `models_cache.json` lists `"fast"` in `additional_speed_tiers` - Codex
+  treats an unsupported tier as a soft warning and *silently omits it from the
+  request*, so a wrongly offered switch looks like it works while doing nothing.
+- Codex describes the tier as "1.5x speed, increased usage". It states no cost
+  multiplier anywhere, so user-facing text must not invent one.
+- The app passes `--ignore-user-config`, so the user's `config.toml` never
+  affects a run; every setting must be passed explicitly on the command line.
+
 ## Tray lifetime (each point was a real bug)
 
 - Live status (idle / listening / busy) is a coloured dot badged onto the **tray

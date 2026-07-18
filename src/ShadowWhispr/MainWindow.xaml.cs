@@ -558,7 +558,8 @@ public partial class MainWindow : Window
                     _settings.Reasoning,
                     _settings.CustomInstruction,
                     text,
-                    _lifetime?.Token ?? default);
+                    _lifetime?.Token ?? default,
+                    _settings.CodexFastMode);
             }
 
             TranscriptBox.Text = text;
@@ -675,6 +676,7 @@ public partial class MainWindow : Window
                 : $"Logged out of {provider}";
             ModelCombo.ItemsSource = Array.Empty<AiModelOption>();
             ReasoningCombo.ItemsSource = Array.Empty<string>();
+            UpdateFastModeChoice(null);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -731,6 +733,7 @@ public partial class MainWindow : Window
             AppLog.Write($"Discovering {provider} models failed: {ex.Message}");
             ModelCombo.ItemsSource = Array.Empty<AiModelOption>();
             ReasoningCombo.ItemsSource = Array.Empty<string>();
+            UpdateFastModeChoice(null);
             RunStatus.Text = ex.Message;
         }
         finally
@@ -755,6 +758,7 @@ public partial class MainWindow : Window
         {
             ReasoningCombo.ItemsSource = Array.Empty<string>();
             ReasoningCombo.IsEnabled = false;
+            UpdateFastModeChoice(null);
             return;
         }
 
@@ -768,6 +772,19 @@ public partial class MainWindow : Window
             : model.DefaultReasoningLevel;
         ReasoningCombo.SelectedItem = preferred ?? model.ReasoningLevels.FirstOrDefault();
         ReasoningCombo.IsEnabled = model.ReasoningLevels.Count > 0;
+        UpdateFastModeChoice(model);
+    }
+
+    /// <summary>
+    /// Fast mode only exists for Codex models that advertise the tier, so the
+    /// box stays hidden everywhere else rather than offering a switch that would
+    /// do nothing.
+    /// </summary>
+    private void UpdateFastModeChoice(AiModelOption? model)
+    {
+        var supported = model?.SupportsFastMode == true;
+        FastModePanel.Visibility = supported ? Visibility.Visible : Visibility.Collapsed;
+        FastModeCheck.IsChecked = supported && _settings.CodexFastMode;
     }
 
     private void AiToggleChanged(object sender, RoutedEventArgs e)
@@ -962,6 +979,13 @@ public partial class MainWindow : Window
         var reasoning = ReasoningCombo.SelectedItem as string ?? string.Empty;
         _settings.Reasoning = reasoning;
         _settings.SetReasoningFor(_activeProvider, reasoning);
+        // Only read while the box is actually on screen. It is hidden for every
+        // non-Codex model, and reading it then would quietly clear the choice the
+        // user made for Codex - the same trap the reasoning memory above avoids.
+        if (FastModePanel.Visibility == Visibility.Visible)
+        {
+            _settings.CodexFastMode = FastModeCheck.IsChecked == true;
+        }
         _settings.CustomInstruction = string.IsNullOrWhiteSpace(InstructionBox.Text)
             ? new AppSettings().CustomInstruction
             : InstructionBox.Text.Trim();

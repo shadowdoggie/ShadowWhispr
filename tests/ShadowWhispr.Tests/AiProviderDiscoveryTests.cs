@@ -23,6 +23,30 @@ public sealed class AiProviderDiscoveryTests
         });
     }
 
+    /// <summary>
+    /// Fast mode must only be offered where Codex advertises the tier. Codex
+    /// treats an unsupported tier as "omitted from requests", so a wrongly
+    /// offered switch would look like it worked while doing nothing.
+    /// </summary>
+    [Fact]
+    public async Task CodexModelsReportTheirFastModeSupport()
+    {
+        var models = await _service.DiscoverModelsAsync(
+            AiProviderService.Codex,
+            TestContext.Current.CancellationToken);
+        Assert.NotEmpty(models);
+        Assert.Contains(models, model => model.SupportsFastMode);
+    }
+
+    [Theory]
+    [InlineData(AiProviderService.Claude)]
+    [InlineData(AiProviderService.Gemini)]
+    public async Task OnlyCodexEverOffersFastMode(string provider)
+    {
+        var models = await _service.DiscoverModelsAsync(provider, TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(models, model => model.SupportsFastMode);
+    }
+
     [Fact]
     public async Task ClaudeHaikuDoesNotOfferUnsupportedEffortPicker()
     {

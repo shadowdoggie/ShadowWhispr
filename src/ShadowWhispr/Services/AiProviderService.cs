@@ -24,6 +24,12 @@ public sealed partial class AiProviderService
         new(Claude, "claude-haiku-4-5", "Claude Haiku 4.5", [], null)
     ];
 
+    /// <summary>The speed tier Codex's model cache lists for fast-capable models.</summary>
+    private const string FastSpeedTier = "fast";
+
+    /// <summary>The value Codex's <c>service_tier</c> setting takes for fast mode.</summary>
+    private const string PriorityServiceTier = "priority";
+
     private static readonly string[] ReasoningOrder =
         ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "on"];
 
@@ -135,7 +141,8 @@ public sealed partial class AiProviderService
         string? reasoning,
         string instruction,
         string text,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool fastMode = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
         ArgumentNullException.ThrowIfNull(instruction);
@@ -152,7 +159,7 @@ public sealed partial class AiProviderService
         var output = normalizedProvider switch
         {
             Claude => await ProcessWithClaudeAsync(modelId, reasoning, prompt, cancellationToken),
-            Codex => await ProcessWithCodexAsync(modelId, reasoning, prompt, cancellationToken),
+            Codex => await ProcessWithCodexAsync(modelId, reasoning, prompt, fastMode, cancellationToken),
             Gemini => await ProcessWithGeminiAsync(modelId, reasoning, prompt, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
@@ -229,7 +236,8 @@ public sealed partial class AiProviderService
                     id,
                     displayName,
                     SortReasoningLevels(efforts),
-                    defaultEffort)));
+                    defaultEffort,
+                    SupportsFastMode: HasFastSpeedTier(model))));
             }
 
             return discovered
@@ -246,6 +254,31 @@ public sealed partial class AiProviderService
         {
             throw new AiProviderException("Could not read Codex's model cache.", exception);
         }
+    }
+
+    /// <summary>
+    /// True when Codex's model cache says this model offers the "fast" speed
+    /// tier, which the CLI selects with <c>service_tier="priority"</c>. Read from
+    /// the cache rather than hardcoded: which models offer it changes with the
+    /// model line-up, and a stale hardcoded list would silently offer users a
+    /// toggle the model rejects.
+    /// </summary>
+    private static bool HasFastSpeedTier(JsonElement model)
+    {
+        if (model.TryGetProperty("additional_speed_tiers", out var tiers) &&
+            tiers.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var tier in tiers.EnumerateArray())
+            {
+                if (tier.ValueKind == JsonValueKind.String &&
+                    string.Equals(tier.GetString(), FastSpeedTier, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private async Task<IReadOnlyList<AiModelOption>> DiscoverGeminiModelsAsync(CancellationToken cancellationToken)
@@ -354,6 +387,7 @@ public sealed partial class AiProviderService
         string modelId,
         string? reasoning,
         string prompt,
+        bool fastMode,
         CancellationToken cancellationToken)
     {
         var arguments = new List<string>
@@ -375,6 +409,16 @@ public sealed partial class AiProviderService
             arguments.Add("--config");
             arguments.Add($"model_reasoning_effort=\"{EscapeTomlString(reasoning)}\"");
         }
+
+        // Fast mode is Codex's "priority" service tier. --ignore-user-config above
+        // means config.toml is not read, so the tier is only ever what is set here.
+        if (fastMode)
+        {
+            arguments.Add("--config");
+            arguments.Add($"service_tier=\"{PriorityServiceTier}\"");
+        }
+
+        AppLog.Write($"Codex cleanup starting: model={modelId}, effort={reasoning ?? "default"}, fast mode {(fastMode ? "on" : "off")}");
 
         arguments.Add("-");
         var result = await RunAsync(

@@ -284,6 +284,20 @@
                             <StackPanel Grid.Column="2">
                                 <TextBlock Text="MODEL" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="ModelCombo" DisplayMemberPath="DisplayName" SelectionChanged="ModelChanged" />
+
+                                <!-- Only shown for models that actually offer Codex's fast speed tier. -->
+                                <Border x:Name="FastModePanel" Visibility="Collapsed"
+                                        Background="#12FFFFFF" BorderBrush="#33DDB45F" BorderThickness="1"
+                                        CornerRadius="8" Padding="12,9" Margin="0,12,0,0">
+                                    <StackPanel>
+                                        <CheckBox x:Name="FastModeCheck" Content="Fast mode"
+                                                  FontWeight="SemiBold" Checked="SettingsChanged"
+                                                  Unchecked="SettingsChanged" />
+                                        <TextBlock Margin="0,7,0,0" FontSize="11" TextWrapping="Wrap"
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   Text="About 1.5x faster replies from Codex. It uses up your Codex usage allowance quicker than normal speed, so leave it off unless you want the extra speed." />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
 
                             <StackPanel Grid.Column="4">
