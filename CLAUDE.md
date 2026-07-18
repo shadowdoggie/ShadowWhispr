@@ -70,6 +70,11 @@ will look reasonable and then break on users' machines — do not "simplify" the
   release workflow's notes step must join `gh` output lines with newlines
   (PowerShell returns arrays).
 - Never create or publish a release without Dylan's explicit yes.
+- Release titles are `ShadowWhispr vX.Y.Z` - no feature name appended.
+- Because CI re-builds and clobbers the installer, any SHA-256 printed in the
+  notes must be taken from CI's published `.sha256` asset **after** the workflow
+  finishes. A checksum from the local build is a different file and will not
+  match what users download.
 
 ## Website
 
