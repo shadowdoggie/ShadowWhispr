@@ -15,7 +15,8 @@ public readonly record struct TextInsertionTarget(nint WindowHandle, nint Focuse
 
 /// <summary>
 /// Copies text to the clipboard and pastes it into the Windows field that was
-/// focused when the push-to-talk key was pressed.
+/// focused when the push-to-talk key was pressed, then puts whatever the user
+/// had on the clipboard back.
 /// </summary>
 public sealed class TextInsertionService
 {
@@ -23,6 +24,13 @@ public sealed class TextInsertionService
     private const uint KeyEventKeyUp = 0x0002;
     private const ushort VkControl = 0x11;
     private const ushort VkV = 0x56;
+
+    /// <summary>
+    /// How long the pasted text must stay on the clipboard before the user's own
+    /// clipboard contents are restored. The target application reads the clipboard
+    /// asynchronously after Ctrl+V, so restoring too early pastes the wrong text.
+    /// </summary>
+    private static readonly TimeSpan RestoreDelay = TimeSpan.FromMilliseconds(400);
 
     public TextInsertionTarget CaptureTarget()
     {
@@ -89,10 +97,14 @@ public sealed class TextInsertionService
         CancellationToken cancellationToken,
         TaskCompletionSource<object?> completion)
     {
+        IDataObject? savedClipboard = null;
+        bool clipboardOverwritten = false;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            savedClipboard = TryCaptureClipboard();
             SetClipboardTextWithRetry(text, cancellationToken);
+            clipboardOverwritten = true;
             ActivateCapturedTarget(target, cancellationToken);
             SendPasteShortcut();
             completion.TrySetResult(null);
@@ -104,6 +116,87 @@ public sealed class TextInsertionService
         catch (Exception ex)
         {
             completion.TrySetException(ex);
+        }
+        finally
+        {
+            if (clipboardOverwritten)
+            {
+                RestoreClipboard(savedClipboard, text);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Takes a detached copy of everything currently on the clipboard so it can be
+    /// put back after pasting. Returns null when the clipboard is empty or locked,
+    /// in which case the clipboard is simply cleared afterwards.
+    /// </summary>
+    private static IDataObject? TryCaptureClipboard()
+    {
+        try
+        {
+            IDataObject? current = Clipboard.GetDataObject();
+            if (current is null)
+            {
+                return null;
+            }
+
+            var snapshot = new DataObject();
+            bool captured = false;
+            foreach (string format in current.GetFormats(autoConvert: false))
+            {
+                try
+                {
+                    object? data = current.GetData(format, autoConvert: false);
+                    if (data is not null)
+                    {
+                        snapshot.SetData(format, data);
+                        captured = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // A single unreadable format (for example a virtual file stream
+                    // owned by an app that has since closed) must not lose the rest.
+                    AppLog.Write($"Could not copy clipboard format '{format}' before pasting.", ex);
+                }
+            }
+
+            return captured ? snapshot : null;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("Could not read the existing clipboard contents before pasting.", ex);
+            return null;
+        }
+    }
+
+    private static void RestoreClipboard(IDataObject? saved, string pastedText)
+    {
+        try
+        {
+            Thread.Sleep(RestoreDelay);
+
+            // Another app may have copied something while the paste was in flight;
+            // only reclaim the clipboard when it still holds our transcript.
+            if (Clipboard.ContainsText(TextDataFormat.UnicodeText)
+                && !string.Equals(Clipboard.GetText(TextDataFormat.UnicodeText), pastedText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (saved is null)
+            {
+                Clipboard.Clear();
+            }
+            else
+            {
+                Clipboard.SetDataObject(saved, copy: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("Could not restore the clipboard contents after pasting.", ex);
         }
     }
 
