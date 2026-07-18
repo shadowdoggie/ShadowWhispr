@@ -13,7 +13,62 @@ public sealed class AppSettings
     public bool AiEnabled { get; set; }
     public string Provider { get; set; } = "Claude";
     public string ModelId { get; set; } = "claude-sonnet-5";
+
+    /// <summary>
+    /// The reasoning effort for the provider in use. Kept for the settings files
+    /// written before per-provider memory existed, and still the value the
+    /// current provider falls back to when it has nothing remembered yet.
+    /// </summary>
     public string Reasoning { get; set; } = "high";
+
+    /// <summary>
+    /// Reasoning effort per provider, so switching away from a provider and back
+    /// restores the effort that was chosen for it rather than whatever the other
+    /// provider happened to be using.
+    /// </summary>
+    public Dictionary<string, string> ReasoningByProvider { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Returns the remembered effort for a provider, falling back to the shared
+    /// value so an existing settings file keeps the user's current choice.
+    /// </summary>
+    public string? GetReasoningFor(string provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider)) return null;
+        foreach (var pair in ReasoningByProvider)
+        {
+            if (string.Equals(pair.Key, provider, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(pair.Value))
+                return pair.Value;
+        }
+
+        return string.Equals(provider, Provider, StringComparison.OrdinalIgnoreCase) &&
+               !string.IsNullOrWhiteSpace(Reasoning)
+            ? Reasoning
+            : null;
+    }
+
+    /// <summary>
+    /// Records the effort chosen for a provider. Blank values are ignored: the
+    /// reasoning list is momentarily empty while a provider's models are being
+    /// discovered, and that must not erase what the user picked.
+    /// </summary>
+    public void SetReasoningFor(string provider, string? reasoning)
+    {
+        if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(reasoning)) return;
+
+        // Deserialized dictionaries lose the case-insensitive comparer, so drop
+        // any key that differs only by case before writing the canonical one.
+        foreach (var key in ReasoningByProvider.Keys
+                     .Where(existing => string.Equals(existing, provider, StringComparison.OrdinalIgnoreCase) &&
+                                        !string.Equals(existing, provider, StringComparison.Ordinal))
+                     .ToList())
+        {
+            ReasoningByProvider.Remove(key);
+        }
+
+        ReasoningByProvider[provider] = reasoning;
+    }
     public string CustomInstruction { get; set; } =
         "You are a prompt improver/rebuilder, for an extreme adhd vibecoder guy who knows alot about software but nothing about coding. The user you improve/rebuild this prompt for is very impulsive so often doesn't really know what he wants. Don't ever make the prompt into something that requires manual input from the user. Don't ever say anything like this or similar: \"Complete this task entirely autonomously without requiring further input.\", because this causes the vibecoding tool to not be able to ask questions if it wants to, and sometimes questions are a good thing. Never remove details the user provides, example: \"on my friend's pc it doesn't work\".";
 

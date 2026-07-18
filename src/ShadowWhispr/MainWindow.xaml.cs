@@ -50,6 +50,14 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _lifetime;
     private CancellationTokenSource? _modelRefresh;
     private int _modelRefreshGeneration;
+    /// <summary>
+    /// The provider whose settings the UI is currently showing. This is not
+    /// always what the provider combo says: when the user picks a new provider
+    /// the combo changes first, while the model and reasoning lists still belong
+    /// to the old one - and the old one is who that reasoning must be saved under.
+    /// </summary>
+    private string _activeProvider = AiProviderService.Claude;
+
     private Button? _capturingHotkeyButton;
     private string _hotkeyBeforeCapture = "Right Ctrl";
     private string? _setupScriptPath;
@@ -576,6 +584,9 @@ public partial class MainWindow : Window
     private void ApplySettingsToUi()
     {
         _uiReady = false;
+        _activeProvider = string.IsNullOrWhiteSpace(_settings.Provider)
+            ? AiProviderService.Claude
+            : _settings.Provider;
         HotkeyCaptureButton.Content = _settings.Hotkey;
         RawHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.RawHotkey)
             ? RawHotkeyUnsetLabel
@@ -600,7 +611,19 @@ public partial class MainWindow : Window
     private async void ProviderChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_uiReady) return;
+
+        // Save first, while _activeProvider still names the provider the
+        // reasoning combo belongs to, then hand over to the new one.
         ReadUiIntoSettings();
+        var previousProvider = _activeProvider;
+        _activeProvider = _settings.Provider;
+        if (!string.Equals(previousProvider, _activeProvider, StringComparison.OrdinalIgnoreCase))
+        {
+            AppLog.Write(
+                $"Provider switched {previousProvider} -> {_activeProvider} " +
+                $"(remembered effort for {_activeProvider}: {_settings.GetReasoningFor(_activeProvider) ?? "none yet"})");
+        }
+
         SetAuthHint(_settings.Provider);
         QueueAutoSave();
         await RefreshModelsAsync(null);
@@ -735,8 +758,12 @@ public partial class MainWindow : Window
         }
 
         ReasoningCombo.ItemsSource = model.ReasoningLevels;
-        var preferred = model.ReasoningLevels.Contains(_settings.Reasoning)
-            ? _settings.Reasoning
+
+        // Restore what this provider was last set to, as long as the selected
+        // model still offers it; otherwise fall back to the model's own default.
+        var remembered = _settings.GetReasoningFor(_activeProvider);
+        var preferred = remembered is not null && model.ReasoningLevels.Contains(remembered)
+            ? remembered
             : model.DefaultReasoningLevel;
         ReasoningCombo.SelectedItem = preferred ?? model.ReasoningLevels.FirstOrDefault();
         ReasoningCombo.IsEnabled = model.ReasoningLevels.Count > 0;
@@ -923,7 +950,13 @@ public partial class MainWindow : Window
         _settings.AiEnabled = AiEnabledCheck.IsChecked == true;
         _settings.Provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
         if (ModelCombo.SelectedItem is AiModelOption model) _settings.ModelId = model.Id;
-        _settings.Reasoning = ReasoningCombo.SelectedItem as string ?? string.Empty;
+        // Filed under the provider the reasoning list actually belongs to, which
+        // during a provider switch is still the previous one. Blank is ignored by
+        // SetReasoningFor, so the momentarily empty list during model discovery
+        // cannot erase a remembered choice.
+        var reasoning = ReasoningCombo.SelectedItem as string ?? string.Empty;
+        _settings.Reasoning = reasoning;
+        _settings.SetReasoningFor(_activeProvider, reasoning);
         _settings.CustomInstruction = string.IsNullOrWhiteSpace(InstructionBox.Text)
             ? new AppSettings().CustomInstruction
             : InstructionBox.Text.Trim();

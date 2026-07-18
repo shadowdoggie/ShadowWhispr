@@ -147,7 +147,7 @@ try {
         }
     }
 
-    Write-Step -Percent 18 -Message "Preparing the installer"
+    Write-Step -Percent 18 -Message "Preparing the package installer (pip)"
     Invoke-WithRetry -Description "Updating pip" -Action {
         & $venvPython -m pip install --upgrade pip wheel
     }
