@@ -21,6 +21,11 @@ will look reasonable and then break on users' machines — do not "simplify" the
   double-quoted string breaks parsing. Scan for bytes > 127 before shipping.
 - `stt/requirements.txt` pins every transitive dependency; setuptools must stay <82
   for the pinned torch.
+- Every requirement must install from a **published wheel**. Never use a
+  `package @ git+https://...` pin: pip then shells out to `git`, which most users do
+  not have (a v0.5.x install died on a user whose scoop `git` shim could not launch).
+  If a feature needs an unreleased upstream commit, wait for the release or vendor a
+  prebuilt wheel into the installer - do not make setup depend on the user's tooling.
 - Setup writes `.venv\setup-complete` only after actually starting the worker once;
   a missing marker or missing/corrupt speech-model means "setup required". Setup emits
   `##SW## percent|message` and `##SWERR## message` markers the app parses for its

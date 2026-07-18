@@ -56,7 +56,11 @@ threadpoolctl==3.6.0
 tokenizers==0.22.2
 torch==2.11.0+cu128
 tqdm==4.68.4
-transformers @ git+https://github.com/huggingface/transformers.git@7ea2320c76117e6742364808a666ef6f2fb40a67
+# 5.9.0 is the first PyPI release with AutoModelForTDT (the Parakeet loader).
+# NEVER go back to a git+https pin here: installing from git needs a working
+# `git` on the user's machine, which broke setup for a user whose scoop git
+# shim could not launch. Every dependency must install from a wheel.
+transformers==5.9.0
 typer==0.27.0
 typing_extensions==4.16.0
 urllib3==2.7.0
