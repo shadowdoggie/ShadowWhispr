@@ -5,7 +5,13 @@
         Width="560" Height="540" MinWidth="460" MinHeight="380"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        ResizeMode="CanResizeWithGrip">
+        ResizeMode="CanResizeWithGrip"
+        FontFamily="Segoe UI Variable Text" FontSize="14"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        UseLayoutRounding="True"
+        Background="{StaticResource InkBrush}"
+        Foreground="{StaticResource TextBrush}">
     <Border Margin="22">
         <Grid>
             <Grid.RowDefinitions>
