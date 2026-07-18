@@ -31,6 +31,7 @@ $project = Join-Path $projectRoot 'src\ShadowWhispr\ShadowWhispr.csproj'
 $publishDir = Join-Path $projectRoot 'build\ShadowWhispr'
 $issFile = Join-Path $projectRoot 'installer\ShadowWhispr.iss'
 $installerDir = Join-Path $projectRoot 'build\installer'
+$bundledPythonDir = Join-Path $projectRoot 'build\python'
 
 # .NET assembly versions must be numeric (x.y.z). Extract that from -Version.
 $numericVersion = '0.0.0'
@@ -45,6 +46,13 @@ dotnet publish $project `
     --output $publishDir `
     "/p:Version=$numericVersion"
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE." }
+
+# ShadowWhispr ships its own Python, so users never install one themselves.
+Write-Host "==> Preparing the bundled Python runtime..." -ForegroundColor Cyan
+& (Join-Path $PSScriptRoot 'get-bundled-python.ps1') -Destination $bundledPythonDir
+if (-not (Test-Path -LiteralPath (Join-Path $bundledPythonDir 'python.exe'))) {
+    throw "The bundled Python runtime is missing; refusing to build an installer without it."
+}
 
 # Locate the Inno Setup compiler (ISCC.exe).
 $iscc = (Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue).Source
@@ -68,6 +76,7 @@ Write-Host "==> Compiling installer with $iscc..." -ForegroundColor Cyan
     "/DMyAppVersion=$Version" `
     "/DSourceDir=$publishDir" `
     "/DScriptsDir=$(Join-Path $projectRoot 'scripts')" `
+    "/DPythonDir=$bundledPythonDir" `
     "/DOutputDir=$installerDir" `
     $issFile
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed with exit code $LASTEXITCODE." }

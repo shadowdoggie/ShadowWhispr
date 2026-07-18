@@ -4,9 +4,12 @@
 
 .DESCRIPTION
     Creates the .venv next to the app and installs Parakeet v3 + CUDA PyTorch.
-    If Python 3.12 is not installed, it is installed automatically (per-user,
-    no admin) via winget, falling back to the official python.org installer.
     Requires an NVIDIA GPU.
+
+    ShadowWhispr ships its own Python, so nothing is ever installed system-wide
+    and no interpreter on the user's machine is touched, inspected or relied on.
+    The runtime lives in {app}\python and is put there by the installer; a source
+    checkout fetches the same pinned build on first run (scripts\get-bundled-python.ps1).
 
     Everything is logged to setup-log.txt next to the app. On failure the
     window stays open with the error instead of closing, and download steps
@@ -19,7 +22,11 @@
     character inside a quoted string breaks parsing.
 #>
 [CmdletBinding()]
-param()
+param(
+    # Reports which Python would be used and stops before changing anything.
+    # Useful for checking a machine without a multi-gigabyte download.
+    [switch]$DetectOnly
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -28,9 +35,8 @@ $venvPath = Join-Path $repoRoot ".venv"
 $venvPython = Join-Path $venvPath "Scripts\python.exe"
 $requirementsPath = Join-Path $repoRoot "stt\requirements.txt"
 $logPath = Join-Path $repoRoot "setup-log.txt"
-
-# Version used if we have to download Python ourselves.
-$PythonVersion = "3.12.8"
+$bundledPythonDir = Join-Path $repoRoot "python"
+$bundledPython = Join-Path $bundledPythonDir "python.exe"
 
 # Emits one progress line for ShadowWhispr's in-app setup screen, plus the same
 # text for anyone watching the console or reading setup-log.txt afterwards.
@@ -44,47 +50,48 @@ function Write-Step {
     Write-Host "##SW## $Percent|$Message"
 }
 
-function Resolve-Python312 {
-    # 1) py launcher with an explicit 3.12 request
-    if (Get-Command py -ErrorAction SilentlyContinue) {
-        $v = & py -3.12 -c "import sys;print('%d.%d' % sys.version_info[:2])" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $v -eq "3.12") { return @("py", "-3.12") }
+# ShadowWhispr ships its own Python. There is deliberately no search of the
+# user's machine: guessing which of several installed interpreters to use was
+# the single largest source of setup failures, and installing one system-wide
+# was never something the user asked for.
+function Resolve-BundledPython {
+    if (-not (Test-Path -LiteralPath $bundledPython)) {
+        # A source checkout has no installer to place the runtime, so fetch the
+        # same pinned build the installer would have shipped.
+        Write-Host "No bundled Python found at $bundledPythonDir"
+        $fetch = Join-Path $PSScriptRoot "get-bundled-python.ps1"
+        if (-not (Test-Path -LiteralPath $fetch)) {
+            throw "ShadowWhispr's Python runtime is missing and scripts\get-bundled-python.ps1 was not found. Please reinstall ShadowWhispr."
+        }
+        & $fetch -Destination $bundledPythonDir
     }
-    # 2) Default per-user install location
-    $direct = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
-    if (Test-Path -LiteralPath $direct) { return @($direct) }
-    # 3) A 'python' on PATH that happens to be 3.12
-    if (Get-Command python -ErrorAction SilentlyContinue) {
-        $v = & python -c "import sys;print('%d.%d' % sys.version_info[:2])" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $v -eq "3.12") { return @((Get-Command python).Source) }
+
+    if (-not (Test-Path -LiteralPath $bundledPython)) {
+        throw "ShadowWhispr's Python runtime is missing from $bundledPythonDir. Please reinstall ShadowWhispr."
     }
-    return $null
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $reported = $null
+    try {
+        $reported = & $bundledPython -c "import sys, venv; print('%d.%d' % sys.version_info[:2])" 2>$null
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        $exitCode = 1
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+
+    if ($exitCode -ne 0 -or (($reported | Out-String).Trim()) -ne "3.12") {
+        throw "ShadowWhispr's bundled Python at $bundledPython could not run. Please reinstall ShadowWhispr."
+    }
+
+    Write-Host "Using ShadowWhispr's bundled Python: $bundledPython"
+    return $bundledPython
 }
 
-function Install-Python312 {
-    Write-Host "Python 3.12 was not found. Installing it now (one-time, no admin needed)..."
-
-    # Preferred: winget, per-user scope.
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host "Trying winget..."
-        $wingetArgs = @("install", "--exact", "--id", "Python.Python.3.12", "--scope", "user",
-            "--silent", "--accept-package-agreements", "--accept-source-agreements")
-        & winget @wingetArgs
-        if (Resolve-Python312) { return }
-        Write-Host "winget did not provide Python 3.12. Falling back to python.org."
-    }
-
-    # Fallback: official python.org installer, silent per-user.
-    $url = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-amd64.exe"
-    $installer = Join-Path $env:TEMP "python-$PythonVersion-amd64.exe"
-    Write-Host "Downloading Python $PythonVersion from python.org..."
-    Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
-    Write-Host "Installing Python $PythonVersion (per-user)..."
-    Start-Process -FilePath $installer -Wait -ArgumentList @(
-        "/quiet", "InstallAllUsers=0", "PrependPath=1", "Include_launcher=1", "Include_test=0"
-    )
-    Remove-Item -LiteralPath $installer -ErrorAction SilentlyContinue
-}
 
 # Downloads fail on flaky connections; retry them before giving up.
 function Invoke-WithRetry {
@@ -108,26 +115,35 @@ function Invoke-WithRetry {
 try { Start-Transcript -Path $logPath | Out-Null } catch {}
 
 try {
-    # --- Make sure we have a Python 3.12 to build the venv with -------------
+    # --- Build the local environment from ShadowWhispr's own Python ---------
     if (-not (Test-Path -LiteralPath $venvPython)) {
-        Write-Step -Percent 2 -Message "Looking for Python 3.12"
-        $python = Resolve-Python312
-        if (-not $python) {
-            Write-Step -Percent 6 -Message "Installing Python 3.12 (one-time, no admin needed)"
-            Install-Python312
-            $python = Resolve-Python312
-        }
-        if (-not $python) {
-            throw "Could not find or install Python 3.12 automatically. Please install it from https://www.python.org/downloads/ and run this again."
+        Write-Step -Percent 2 -Message "Preparing ShadowWhispr's Python"
+        $python = Resolve-BundledPython
+
+        if ($DetectOnly) {
+            Write-Host ""
+            Write-Host "Detection only: would build the environment with $python"
+            try { Stop-Transcript | Out-Null } catch {}
+            exit 0
         }
 
         Write-Step -Percent 14 -Message "Creating the local Python environment"
-        $pythonExe = $python[0]
-        $pythonArgs = @()
-        if ($python.Count -gt 1) { $pythonArgs = $python[1..($python.Count - 1)] }
-        & $pythonExe @pythonArgs -m venv $venvPath
+        & $python -m venv $venvPath
         if ($LASTEXITCODE -ne 0) {
-            throw "Could not create .venv with Python 3.12."
+            throw "Could not create the local Python environment with $python."
+        }
+        if (-not (Test-Path -LiteralPath $venvPython)) {
+            throw "The local Python environment was reported as created but $venvPython is missing."
+        }
+        Write-Host "Local Python environment created."
+    }
+    else {
+        # An existing environment is left exactly as it is, so upgrading an
+        # install that already finished setup changes nothing.
+        Write-Host "Reusing the existing local Python environment at $venvPath"
+        if ($DetectOnly) {
+            try { Stop-Transcript | Out-Null } catch {}
+            exit 0
         }
     }
 

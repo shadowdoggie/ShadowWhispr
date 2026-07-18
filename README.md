@@ -58,6 +58,7 @@ If your brain works like mine, I hope it helps you get the words out too. 💜
 | | |
 |---|---|
 | 🔒 **Fully local recognition** | NVIDIA Parakeet v3 downloads once and is cached on your PC. Works offline forever after. |
+| 📦 **No Python to install** | The app ships its own Python runtime. Nothing is added to your system, and an existing Python setup is never touched. |
 | 🖊️ **Types anywhere** | Text appears in whatever input is focused — chat, docs, email, code. No copy-pasting. |
 | ⚡ **Your hotkey, your rules** | Click the hotkey field and press any key or modifier combo. Extended keys **F13–F24** supported. |
 | ✌️ **Two hotkeys, two modes** | Set a second hotkey that types the **raw** transcript with AI cleanup skipped. Pick the treatment with your finger, not the settings screen. |
@@ -76,7 +77,7 @@ The **first run** installs the local speech environment and downloads the Parake
 
 > **Tip:** Prefer a proper install? Grab the installer from the [latest release](https://github.com/shadowdoggie/ShadowWhispr/releases/latest).
 
-**First launch (installed app):** the very first time you open ShadowWhispr, it offers a one-time **"Set up speech now"** step. That downloads the local speech engine (~2–3 GB) and, if you don't already have **Python 3.12**, installs it for you automatically — no admin needed. Progress is shown **inside the app** — a step name, a progress bar, and live megabytes during the big model download — with no console window to read. If anything goes wrong you get a plain-English message and an **Open setup log** button. After that, launches are instant and offline.
+**First launch (installed app):** the very first time you open ShadowWhispr, it offers a one-time **"Set up speech now"** step. That downloads the local speech engine (~2–3 GB) — no admin needed, and no Python to install, because the app brings its own. Progress is shown **inside the app** — a step name, a progress bar, and live megabytes during the big model download — with no console window to read. If anything goes wrong you get a plain-English message and an **Open setup log** button. After that, launches are instant and offline.
 
 ### 🔔 Tray and startup
 
@@ -132,8 +133,10 @@ Privacy here isn't a setting you switch on — it's how the app works by default
 - **Windows 10 or 11**
 - **NVIDIA GPU (required)** — see note below
 - **.NET 10 Desktop Runtime**
-- **Python 3.12** — installed automatically on first setup if you don't already have it
 - The official provider CLI + an active login for any AI cleanup provider you choose to enable
+
+> [!NOTE]
+> **You do not need Python.** ShadowWhispr ships its own Python 3.12 inside the app and uses only that. Nothing is installed system-wide, no interpreter already on your PC is touched or modified, and uninstalling removes it all again.
 
 > [!IMPORTANT]
 > **ShadowWhispr runs on NVIDIA hardware only.** Local transcription uses a CUDA build of PyTorch and loads the Parakeet model onto an NVIDIA GPU. **AMD and Intel GPUs are not supported**, and there is no CPU-only fallback — without a working NVIDIA + CUDA setup, the app will not transcribe.
@@ -149,6 +152,8 @@ ShadowWhispr/
 ├─ scripts/            # run / build / setup PowerShell scripts
 └─ installer/          # Inno Setup installer definition
 ```
+
+The bundled Python runtime is not in source control. `scripts/get-bundled-python.ps1` fetches a pinned, checksum-verified [python-build-standalone](https://github.com/astral-sh/python-build-standalone) build into `python/` — automatically during a build, and on first setup in a source checkout.
 
 The landing page source is maintained separately in the [ShadowWhispr website repository](https://github.com/shadowdoggie/shadow-whispr-website).
 

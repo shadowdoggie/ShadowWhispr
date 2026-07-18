@@ -420,9 +420,9 @@
                     <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="13"
                                Margin="0,12,0,0" LineHeight="20">
                         ShadowWhispr needs to download its local speech engine
-                        (about 2–3 GB). This happens once. If Python 3.12 isn't
-                        installed, it will be installed for you automatically — no
-                        admin needed. An NVIDIA GPU is required.
+                        (about 2–3 GB). This happens once. Nothing is installed
+                        on your PC outside this app — no admin needed. An NVIDIA
+                        GPU is required.
                     </TextBlock>
                     <Border Background="#141A1E14" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
                             CornerRadius="9" Padding="12,9" Margin="0,14,0,0">

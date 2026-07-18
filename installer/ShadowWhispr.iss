@@ -16,6 +16,9 @@
 #ifndef ScriptsDir
   #define ScriptsDir "..\scripts"
 #endif
+#ifndef PythonDir
+  #define PythonDir "..\build\python"
+#endif
 #ifndef OutputDir
   #define OutputDir "..\build\installer"
 #endif
@@ -65,6 +68,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; The PowerShell scripts, so first-run speech setup can run in place.
 Source: "{#ScriptsDir}\*"; DestDir: "{app}\scripts"; Flags: recursesubdirs createallsubdirs ignoreversion
+; ShadowWhispr's own Python 3.12. Shipping it means the user never installs
+; Python, and setup never has to pick between the ones already on the machine.
+Source: "{#PythonDir}\*"; DestDir: "{app}\python"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -79,6 +85,9 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 ; Remove the first-run speech environment the app created next to itself.
 Type: filesandordirs; Name: "{app}\.venv"
 Type: filesandordirs; Name: "{app}\speech-model"
+; Byte-code caches written next to the bundled runtime are not tracked files,
+; so remove the whole folder rather than leaving it behind half-empty.
+Type: filesandordirs; Name: "{app}\python"
 Type: files; Name: "{app}\setup-log.txt"
 Type: files; Name: "{app}\app-log.txt"
 Type: files; Name: "{app}\app-log.old.txt"
