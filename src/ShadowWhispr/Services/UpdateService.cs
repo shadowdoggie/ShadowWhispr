@@ -197,36 +197,18 @@ public sealed partial class UpdateService
     }
 
     /// <summary>
-    /// Launches the downloaded installer silently as the app exits, so the
-    /// running executable no longer locks its own files. Used when the user
-    /// chose "install when I close"; the app is not reopened. Inno Setup performs
-    /// the in-place per-user upgrade (stable AppId) with no UAC prompt.
+    /// Installs the downloaded update once the app has finished exiting. Used
+    /// when the user chose "install when I close"; the app is not reopened.
+    /// Inno Setup performs the in-place per-user upgrade (stable AppId) with no
+    /// UAC prompt.
+    ///
+    /// This is called from OnClosing, while the process is still alive and still
+    /// holding both its file locks and the single-instance mutex the installer
+    /// checks (AppMutex), so the work is handed to a detached helper that waits
+    /// for this process to disappear first.
     /// </summary>
-    public static bool InstallOnClose(string installerPath)
-    {
-        try
-        {
-            if (!File.Exists(installerPath))
-            {
-                AppLog.Write($"Update install skipped: installer missing at {installerPath}");
-                return false;
-            }
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = installerPath,
-                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
-                UseShellExecute = true,
-            });
-            AppLog.Write($"Update installer launched (install on close): {installerPath}");
-            return true;
-        }
-        catch (Exception exception)
-        {
-            AppLog.Write("Launching the update installer failed", exception);
-            return false;
-        }
-    }
+    public static bool InstallOnClose(string installerPath) =>
+        LaunchInstallHelper(installerPath, relaunchAppPath: null, "install on close");
 
     /// <summary>
     /// Installs the update immediately and reopens the app. A detached helper
@@ -234,7 +216,18 @@ public sealed partial class UpdateService
     /// silently, then relaunches the app — after calling this, the caller shuts
     /// the app down. This avoids relying on the installer's Restart Manager.
     /// </summary>
-    public static bool InstallNowAndRestart(string installerPath, string appExePath)
+    public static bool InstallNowAndRestart(string installerPath, string appExePath) =>
+        LaunchInstallHelper(installerPath, appExePath, "install now + restart");
+
+    /// <summary>
+    /// Starts a detached PowerShell helper that waits for this process to exit,
+    /// runs the installer silently, and optionally relaunches the app.
+    ///
+    /// Waiting is what makes the upgrade reliable: until this process is gone it
+    /// both locks its own executable and holds the single-instance mutex that
+    /// the installer refuses to install over.
+    /// </summary>
+    private static bool LaunchInstallHelper(string installerPath, string? relaunchAppPath, string reason)
     {
         try
         {
@@ -246,12 +239,12 @@ public sealed partial class UpdateService
 
             var pid = Environment.ProcessId;
             var installer = EscapeForSingleQuoted(installerPath);
-            var app = EscapeForSingleQuoted(appExePath);
             var command =
                 "$ErrorActionPreference='SilentlyContinue';" +
                 $"Wait-Process -Id {pid} -Timeout 60;" +
-                $"Start-Process -FilePath '{installer}' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait;" +
-                $"Start-Process -FilePath '{app}'";
+                $"Start-Process -FilePath '{installer}' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait;";
+            if (relaunchAppPath is not null)
+                command += $"Start-Process -FilePath '{EscapeForSingleQuoted(relaunchAppPath)}'";
 
             Process.Start(new ProcessStartInfo
             {
@@ -261,12 +254,12 @@ public sealed partial class UpdateService
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
             });
-            AppLog.Write($"Update helper launched (install now + restart): {installerPath}");
+            AppLog.Write($"Update helper launched ({reason}): {installerPath}");
             return true;
         }
         catch (Exception exception)
         {
-            AppLog.Write("Launching the update helper failed", exception);
+            AppLog.Write($"Launching the update helper failed ({reason})", exception);
             return false;
         }
     }

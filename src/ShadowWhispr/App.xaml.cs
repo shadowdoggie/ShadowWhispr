@@ -5,6 +5,13 @@ namespace ShadowWhispr;
 
 public partial class App : Application
 {
+    /// <remarks>
+    /// The installer detects a running ShadowWhispr through this same mutex
+    /// (AppMutex in installer\ShadowWhispr.iss). "Local\" is the session
+    /// namespace, which is the name Inno Setup opens, so the two must be kept
+    /// in step — otherwise an upgrade fails on a locked exe while the app is
+    /// sitting invisibly in the tray.
+    /// </remarks>
     private const string InstanceMutexName = @"Local\ShadowWhispr.SingleInstance";
     private const string ShowWindowEventName = @"Local\ShadowWhispr.ShowWindow";
 

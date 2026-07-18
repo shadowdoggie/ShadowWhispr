@@ -48,6 +48,11 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#MyAppName} {#MyAppVersion}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; ShadowWhispr can be running with no window at all (it keeps listening from the
+; system tray), so without this an upgrade would fail on a locked exe while the
+; user is certain they closed it. The name matches the single-instance mutex the
+; app creates at startup; see App.xaml.cs.
+AppMutex=ShadowWhispr.SingleInstance
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -77,3 +82,16 @@ Type: filesandordirs; Name: "{app}\speech-model"
 Type: files; Name: "{app}\setup-log.txt"
 Type: files; Name: "{app}\app-log.txt"
 Type: files; Name: "{app}\app-log.old.txt"
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    // Remove the optional "start with Windows" entry the app writes when the
+    // user ticks that box. Left behind, Windows would keep trying to launch a
+    // deleted executable at every login.
+    RegDeleteValue(HKEY_CURRENT_USER,
+      'Software\Microsoft\Windows\CurrentVersion\Run', 'ShadowWhispr');
+  end;
+end;

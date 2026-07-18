@@ -326,7 +326,9 @@ public partial class MainWindow : Window
             else
             {
                 _pendingInstallerPath = installerPath;
-                SetUpdateStatus($"Update {update.Tag} will install when you close ShadowWhispr.");
+                SetUpdateStatus(
+                    $"Update {update.Tag} will install when you close this window — " +
+                    "ShadowWhispr will fully close rather than stay in the tray.");
             }
         }
         catch (OperationCanceledException) { }
@@ -844,6 +846,10 @@ public partial class MainWindow : Window
         var isRaw = ReferenceEquals(button, RawHotkeyCaptureButton);
         var text = clear ? string.Empty : hotkey?.ToString() ?? _hotkeyBeforeCapture;
 
+        // Cancelling on an unassigned second field restores its placeholder,
+        // which is a label rather than a hotkey and must not be stored as one.
+        if (text == RawHotkeyUnsetLabel) text = string.Empty;
+
         // One keypress must never mean two things, so a binding that duplicates
         // the other field is refused instead of silently shadowing it.
         if (text.Length > 0)
@@ -1042,6 +1048,16 @@ public partial class MainWindow : Window
         // Closing the window is not quitting: by default ShadowWhispr keeps
         // running in the tray so the hold hotkey still works. Only the tray's
         // Quit item (which sets _exitRequested) actually shuts things down.
+        //
+        // The exception is a downloaded update the user asked to install on
+        // close. That install needs this process gone, so honour their choice
+        // and exit for real instead of hiding.
+        if (_pendingInstallerPath is not null && !_exitRequested)
+        {
+            AppLog.Write("Closing for real rather than to the tray: an update is waiting to install");
+            _exitRequested = true;
+        }
+
         if (!_exitRequested && _settings.KeepRunningInTray)
         {
             e.Cancel = true;
