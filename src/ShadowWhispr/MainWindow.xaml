@@ -374,8 +374,17 @@
                                        FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
                         </StackPanel>
                     </StackPanel>
-                    <Button x:Name="SaveButton" Grid.Column="1" Content="Save settings" Padding="20,10"
-                            VerticalAlignment="Top" Click="SaveClicked" />
+                    <Border x:Name="SaveStatusPill" Grid.Column="1" Background="#1810141A"
+                            BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="14"
+                            Padding="13,7" VerticalAlignment="Top">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="SaveDot" Width="9" Height="9" Margin="0,0,8,0"
+                                     VerticalAlignment="Center" Fill="{StaticResource MutedBrush}" />
+                            <TextBlock x:Name="SaveStatus" Text="Settings save automatically"
+                                       Foreground="{StaticResource MutedBrush}" FontSize="12" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="280" />
+                        </StackPanel>
+                    </Border>
                 </Grid>
             </Grid>
         </ScrollViewer>

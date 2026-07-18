@@ -18,6 +18,8 @@ public partial class MainWindow : Window
     private static readonly Brush ErrorRed = new SolidColorBrush(Color.FromRgb(223, 74, 74));
     private static readonly Brush LineGray = new SolidColorBrush(Color.FromRgb(53, 65, 78));
 
+    private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromMilliseconds(600);
+
     private readonly SettingsService _settingsService = new();
     private readonly ParakeetService _parakeet = new();
     private readonly AiProviderService _ai = new();
@@ -30,6 +32,7 @@ public partial class MainWindow : Window
     private string? _pendingInstallerPath;
     private System.Windows.Threading.DispatcherTimer? _updatePollTimer;
     private System.Windows.Threading.DispatcherTimer? _updateRepromptTimer;
+    private System.Windows.Threading.DispatcherTimer? _autoSaveTimer;
     private bool _updateCheckInProgress;
     private bool _updatePromptOpen;
     private DateTime _suppressAutoPromptUntil = DateTime.MinValue;
@@ -37,6 +40,7 @@ public partial class MainWindow : Window
     private AppSettings _settings = new();
     private TextInsertionTarget _insertionTarget;
     private bool _uiReady;
+    private bool _startupComplete;
     private bool _busy;
     private CancellationTokenSource? _lifetime;
     private CancellationTokenSource? _modelRefresh;
@@ -79,6 +83,7 @@ public partial class MainWindow : Window
         }
 
         await RefreshModelsAsync(_settings.ModelId);
+        _startupComplete = true;
         _ = WarmSpeechEngineAsync(_lifetime.Token);
 
         if (_settings.AutoUpdateEnabled)
@@ -242,6 +247,7 @@ public partial class MainWindow : Window
     {
         if (!_uiReady) return;
         ReadUiIntoSettings();
+        QueueAutoSave();
         if (_settings.AutoUpdateEnabled)
         {
             AppLog.Write("Auto-update enabled by user");
@@ -423,6 +429,7 @@ public partial class MainWindow : Window
         if (!_uiReady) return;
         ReadUiIntoSettings();
         SetAuthHint(_settings.Provider);
+        QueueAutoSave();
         await RefreshModelsAsync(null);
     }
 
@@ -542,6 +549,7 @@ public partial class MainWindow : Window
         if (!_uiReady) return;
         UpdateReasoningChoices();
         ReadUiIntoSettings();
+        QueueAutoSave();
     }
 
     private void UpdateReasoningChoices()
@@ -573,6 +581,7 @@ public partial class MainWindow : Window
         if (!_uiReady) return;
         ReadUiIntoSettings();
         _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
+        QueueAutoSave();
     }
 
     private void InstructionResizeDragged(object sender, DragDeltaEventArgs e)
@@ -651,6 +660,7 @@ public partial class MainWindow : Window
         _settings.Hotkey = text;
         _hotkey.Hotkey = ParseHotkey(text);
         _hotkey.Enabled = true;
+        QueueAutoSave();
     }
 
     private static Key GetActualKey(KeyEventArgs e) => e.Key switch
@@ -681,8 +691,33 @@ public partial class MainWindow : Window
         _settings.AutoUpdateEnabled = AutoUpdateCheck.IsChecked == true;
     }
 
-    private void SaveClicked(object sender, RoutedEventArgs e)
+    // --- Automatic saving -------------------------------------------------
+
+    /// <summary>
+    /// Every settings control calls this instead of a Save button. Writes are
+    /// debounced so that typing in the instruction box (one event per keystroke)
+    /// results in a single write once the user pauses.
+    /// </summary>
+    private void QueueAutoSave()
     {
+        // _startupComplete keeps the initial model discovery — which selects a
+        // model and so raises the same change events a user would — from
+        // reporting a save the user never made.
+        if (!_uiReady || !_startupComplete) return;
+        SetSaveStatus("Saving…", WorkingGold);
+        _autoSaveTimer ??= CreateTimer(AutoSaveDelay, SaveSettingsNow);
+        _autoSaveTimer.Stop();
+        _autoSaveTimer.Start();
+    }
+
+    /// <summary>
+    /// Reads the UI into settings (which applies the same validation the Save
+    /// button used to) and writes them to disk, reporting the outcome in the
+    /// status pill. Also used to flush a pending debounced save on shutdown.
+    /// </summary>
+    private void SaveSettingsNow()
+    {
+        _autoSaveTimer?.Stop();
         ReadUiIntoSettings();
         try
         {
@@ -690,14 +725,20 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Write("Saving settings failed", ex);
+            AppLog.Write("Auto-saving settings failed", ex);
+            SetSaveStatus($"Not saved: {ex.Message}", ErrorRed);
             SetError($"Could not save settings: {ex.Message}");
             return;
         }
-        SaveButton.Content = "Saved";
-        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
-        timer.Tick += (_, _) => { SaveButton.Content = "Save settings"; timer.Stop(); };
-        timer.Start();
+        AppLog.Write("Settings auto-saved");
+        SetSaveStatus($"Saved at {DateTime.Now:HH:mm:ss}", ReadyGreen);
+    }
+
+    private void SetSaveStatus(string text, Brush color)
+    {
+        SaveStatus.Text = text;
+        SaveStatus.Foreground = color;
+        SaveDot.Fill = color;
     }
 
     private void SetEngine(string text, Brush color)
@@ -740,9 +781,11 @@ public partial class MainWindow : Window
         AppLog.Write("App closing");
         // Each shutdown step is isolated and logged so one failure can neither
         // hide from the log nor prevent the remaining cleanup from running.
+        // Flushes a debounced auto-save that has not fired yet, so a change made
+        // in the last moment before closing is still written.
         RunLogged("save settings on close", () => { ReadUiIntoSettings(); _settingsService.Save(_settings); });
         RunLogged("cancel pending work", () => { _lifetime?.Cancel(); _modelRefresh?.Cancel(); });
-        RunLogged("stop update timers", () => { _updatePollTimer?.Stop(); _updateRepromptTimer?.Stop(); });
+        RunLogged("stop update timers", () => { _updatePollTimer?.Stop(); _updateRepromptTimer?.Stop(); _autoSaveTimer?.Stop(); });
         RunLogged("stop hotkey hook", _hotkey.Dispose);
         RunLogged("stop tone player", _tones.Dispose);
         RunLogged("stop audio recorder", _audio.Dispose);
