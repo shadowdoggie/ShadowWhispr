@@ -29,45 +29,73 @@ public sealed class AppSettings
     public Dictionary<string, string> ReasoningByProvider { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Selected model per provider, remembered for the same reason as the
+    /// effort: coming back to a provider should restore the setup that was left
+    /// there, not reset to whichever model happens to be listed first.
+    /// </summary>
+    public Dictionary<string, string> ModelByProvider { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Returns the remembered model for a provider, falling back to the shared
+    /// value so an existing settings file keeps the user's current choice.
+    /// </summary>
+    public string? GetModelFor(string provider) =>
+        LookUp(ModelByProvider, provider)
+        ?? (string.Equals(provider, Provider, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(ModelId)
+                ? ModelId
+                : null);
+
+    /// <summary>Records the model chosen for a provider. Blank values are ignored.</summary>
+    public void SetModelFor(string provider, string? modelId) =>
+        Store(ModelByProvider, provider, modelId);
+
+    /// <summary>
     /// Returns the remembered effort for a provider, falling back to the shared
     /// value so an existing settings file keeps the user's current choice.
     /// </summary>
-    public string? GetReasoningFor(string provider)
-    {
-        if (string.IsNullOrWhiteSpace(provider)) return null;
-        foreach (var pair in ReasoningByProvider)
-        {
-            if (string.Equals(pair.Key, provider, StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(pair.Value))
-                return pair.Value;
-        }
-
-        return string.Equals(provider, Provider, StringComparison.OrdinalIgnoreCase) &&
-               !string.IsNullOrWhiteSpace(Reasoning)
-            ? Reasoning
-            : null;
-    }
+    public string? GetReasoningFor(string provider) =>
+        LookUp(ReasoningByProvider, provider)
+        ?? (string.Equals(provider, Provider, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(Reasoning)
+                ? Reasoning
+                : null);
 
     /// <summary>
     /// Records the effort chosen for a provider. Blank values are ignored: the
     /// reasoning list is momentarily empty while a provider's models are being
     /// discovered, and that must not erase what the user picked.
     /// </summary>
-    public void SetReasoningFor(string provider, string? reasoning)
+    public void SetReasoningFor(string provider, string? reasoning) =>
+        Store(ReasoningByProvider, provider, reasoning);
+
+    private static string? LookUp(Dictionary<string, string> values, string provider)
     {
-        if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(reasoning)) return;
+        if (string.IsNullOrWhiteSpace(provider)) return null;
+        foreach (var pair in values)
+        {
+            if (string.Equals(pair.Key, provider, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(pair.Value))
+                return pair.Value;
+        }
+        return null;
+    }
+
+    private static void Store(Dictionary<string, string> values, string provider, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(value)) return;
 
         // Deserialized dictionaries lose the case-insensitive comparer, so drop
         // any key that differs only by case before writing the canonical one.
-        foreach (var key in ReasoningByProvider.Keys
+        foreach (var key in values.Keys
                      .Where(existing => string.Equals(existing, provider, StringComparison.OrdinalIgnoreCase) &&
                                         !string.Equals(existing, provider, StringComparison.Ordinal))
                      .ToList())
         {
-            ReasoningByProvider.Remove(key);
+            values.Remove(key);
         }
 
-        ReasoningByProvider[provider] = reasoning;
+        values[provider] = value;
     }
     public string CustomInstruction { get; set; } =
         "You are a prompt improver/rebuilder, for an extreme adhd vibecoder guy who knows alot about software but nothing about coding. The user you improve/rebuild this prompt for is very impulsive so often doesn't really know what he wants. Don't ever make the prompt into something that requires manual input from the user. Don't ever say anything like this or similar: \"Complete this task entirely autonomously without requiring further input.\", because this causes the vibecoding tool to not be able to ask questions if it wants to, and sometimes questions are a good thing. Never remove details the user provides, example: \"on my friend's pc it doesn't work\".";

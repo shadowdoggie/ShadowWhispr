@@ -626,7 +626,10 @@ public partial class MainWindow : Window
 
         SetAuthHint(_settings.Provider);
         QueueAutoSave();
-        await RefreshModelsAsync(null);
+
+        // Restore the model this provider was last using, for the same reason
+        // as its effort: coming back should look like you left it.
+        await RefreshModelsAsync(_settings.GetModelFor(_activeProvider));
     }
 
     private async void LoginClicked(object sender, RoutedEventArgs e)
@@ -949,7 +952,11 @@ public partial class MainWindow : Window
         _settings.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
         _settings.AiEnabled = AiEnabledCheck.IsChecked == true;
         _settings.Provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
-        if (ModelCombo.SelectedItem is AiModelOption model) _settings.ModelId = model.Id;
+        if (ModelCombo.SelectedItem is AiModelOption model)
+        {
+            _settings.ModelId = model.Id;
+            _settings.SetModelFor(_activeProvider, model.Id);
+        }
         // Filed under the provider the reasoning list actually belongs to, which
         // during a provider switch is still the previous one. Blank is ignored by
         // SetReasoningFor, so the momentarily empty list during model discovery

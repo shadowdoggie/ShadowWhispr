@@ -95,6 +95,65 @@ public sealed class ReasoningMemoryTests
     }
 
     [Fact]
+    public void EachProviderKeepsItsOwnModel()
+    {
+        var settings = new AppSettings();
+        settings.SetModelFor("Claude", "claude-opus-4-8");
+        settings.SetModelFor("Codex", "gpt-5.6-sol");
+
+        Assert.Equal("claude-opus-4-8", settings.GetModelFor("Claude"));
+        Assert.Equal("gpt-5.6-sol", settings.GetModelFor("Codex"));
+    }
+
+    [Fact]
+    public void ModelAndEffortSurviveAnAppRestartTogether()
+    {
+        var settings = new AppSettings { Provider = "Claude" };
+        settings.SetModelFor("Claude", "claude-opus-4-8");
+        settings.SetReasoningFor("Claude", "max");
+        settings.SetModelFor("Codex", "gpt-5.6-sol");
+        settings.SetReasoningFor("Codex", "medium");
+
+        var reloaded = JsonSerializer.Deserialize<AppSettings>(
+            JsonSerializer.Serialize(settings, JsonOptions), JsonOptions);
+
+        Assert.NotNull(reloaded);
+        Assert.Equal("claude-opus-4-8", reloaded!.GetModelFor("Claude"));
+        Assert.Equal("max", reloaded.GetReasoningFor("Claude"));
+        Assert.Equal("gpt-5.6-sol", reloaded.GetModelFor("Codex"));
+        Assert.Equal("medium", reloaded.GetReasoningFor("Codex"));
+    }
+
+    [Fact]
+    public void AnOlderSettingsFileKeepsTheModelItAlreadyHad()
+    {
+        const string legacyJson = """
+            {
+              "Provider": "Codex",
+              "ModelId": "gpt-5.6-sol",
+              "Reasoning": "medium"
+            }
+            """;
+
+        var settings = JsonSerializer.Deserialize<AppSettings>(legacyJson, JsonOptions);
+
+        Assert.NotNull(settings);
+        Assert.Equal("gpt-5.6-sol", settings!.GetModelFor("Codex"));
+        Assert.Null(settings.GetModelFor("Claude"));
+    }
+
+    [Fact]
+    public void ABlankModelNeverErasesWhatWasRemembered()
+    {
+        var settings = new AppSettings();
+        settings.SetModelFor("Claude", "claude-opus-4-8");
+
+        settings.SetModelFor("Claude", "");
+
+        Assert.Equal("claude-opus-4-8", settings.GetModelFor("Claude"));
+    }
+
+    [Fact]
     public void ProviderNamesAreMatchedRegardlessOfCase()
     {
         // Deserialization loses the case-insensitive comparer, so this is the

@@ -93,69 +93,157 @@ function Resolve-BundledPython {
 }
 
 
-# Downloads fail on flaky connections; retry them before giving up.
+# An existing .venv is only worth keeping if it actually runs. One left behind
+# by an older ShadowWhispr - built from a system Python that has since moved,
+# broken or been uninstalled - looks perfectly fine on disk while every command
+# in it fails instantly. Reusing one of those made setup unusable and blamed the
+# user's internet for it.
+function Test-VenvUsable {
+    param([string]$VenvPython)
+
+    if (-not (Test-Path -LiteralPath $VenvPython)) {
+        Write-Host "  the environment has no python.exe"
+        return $false
+    }
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $global:LASTEXITCODE = 0
+        $output = & $VenvPython -c "import sys, pip, venv; print('ok')" 2>&1
+        if ($LASTEXITCODE -ne 0 -or (($output | Out-String) -notmatch "ok")) {
+            Write-Host "  the environment does not run: $((($output | Out-String).Trim()))"
+            return $false
+        }
+        return $true
+    }
+    catch {
+        Write-Host "  the environment could not be started: $($_.Exception.Message)"
+        return $false
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+# Runs an external command, retrying genuine transient failures. Every attempt's
+# output is echoed so setup-log.txt shows what actually went wrong: the previous
+# version swallowed it and always reported "check your internet connection",
+# which hid a broken environment behind a network error that never happened.
+#
+# $LASTEXITCODE alone is not a reliable signal - when a command fails to launch
+# it is never set and keeps its previous value, so a failure can read as success.
 function Invoke-WithRetry {
     param(
-        [scriptblock]$Action,
+        [string]$Exe,
+        [string[]]$Arguments,
         [string]$Description,
         [int]$Attempts = 3
     )
+    $lastError = "no output"
+
     for ($i = 1; $i -le $Attempts; $i++) {
-        & $Action
-        if ($LASTEXITCODE -eq 0) { return }
+        $launchFailed = $false
+        $global:LASTEXITCODE = 0
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $output = & $Exe @Arguments 2>&1
+            $text = ($output | Out-String).Trim()
+            if ($text) { Write-Host $text }
+        }
+        catch {
+            $launchFailed = $true
+            $text = $_.Exception.Message
+            Write-Host "  could not run ${Exe}: $text"
+        }
+        finally {
+            $ErrorActionPreference = $previous
+        }
+
+        if (-not $launchFailed -and $LASTEXITCODE -eq 0) { return }
+
+        $lastError = if ($text) { $text } else { "exit code $LASTEXITCODE, no output" }
         if ($i -lt $Attempts) {
             Write-Host ""
             Write-Host "$Description failed (attempt $i of $Attempts). Retrying in 10 seconds..." -ForegroundColor Yellow
             Start-Sleep -Seconds 10
         }
     }
-    throw "$Description failed after $Attempts attempts. Check your internet connection, then run setup again."
+
+    # Keep the real reason in the message; an instant failure with no output is
+    # never a slow connection, and saying so sends people hunting the wrong fault.
+    $tail = ($lastError -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 3) -join " | "
+    throw "$Description failed after $Attempts attempts. Last error: $tail"
 }
 
 try { Start-Transcript -Path $logPath | Out-Null } catch {}
 
 try {
     # --- Build the local environment from ShadowWhispr's own Python ---------
-    if (-not (Test-Path -LiteralPath $venvPython)) {
-        Write-Step -Percent 2 -Message "Preparing ShadowWhispr's Python"
-        $python = Resolve-BundledPython
+    Write-Step -Percent 2 -Message "Preparing ShadowWhispr's Python"
+    $python = Resolve-BundledPython
 
-        if ($DetectOnly) {
-            Write-Host ""
-            Write-Host "Detection only: would build the environment with $python"
-            try { Stop-Transcript | Out-Null } catch {}
-            exit 0
+    # A working environment is kept as-is, so upgrading an install that already
+    # finished setup changes nothing. A broken one is rebuilt rather than used:
+    # an environment built by an older ShadowWhispr from a system Python that is
+    # now gone fails every command instantly, which used to end setup here.
+    $rebuildReason = $null
+    if (Test-Path -LiteralPath $venvPath) {
+        Write-Host "Checking the existing local Python environment at $venvPath"
+        if (Test-VenvUsable -VenvPython $venvPython) {
+            Write-Host "The existing environment works; keeping it."
+        }
+        else {
+            $rebuildReason = "the existing environment could not run"
+        }
+    }
+    else {
+        $rebuildReason = "no environment exists yet"
+    }
+
+    if ($DetectOnly) {
+        Write-Host ""
+        if ($rebuildReason) {
+            Write-Host "Detection only: would build the environment with $python ($rebuildReason)"
+        }
+        else {
+            Write-Host "Detection only: the existing environment is fine and would be kept"
+        }
+        try { Stop-Transcript | Out-Null } catch {}
+        exit 0
+    }
+
+    if ($rebuildReason) {
+        Write-Step -Percent 14 -Message "Creating the local Python environment"
+        Write-Host "Building a fresh environment because $rebuildReason."
+
+        if (Test-Path -LiteralPath $venvPath) {
+            Write-Host "Removing the unusable environment first..."
+            Remove-Item -LiteralPath $venvPath -Recurse -Force -ErrorAction Stop
         }
 
-        Write-Step -Percent 14 -Message "Creating the local Python environment"
         & $python -m venv $venvPath
         if ($LASTEXITCODE -ne 0) {
             throw "Could not create the local Python environment with $python."
         }
-        if (-not (Test-Path -LiteralPath $venvPython)) {
-            throw "The local Python environment was reported as created but $venvPython is missing."
+        if (-not (Test-VenvUsable -VenvPython $venvPython)) {
+            throw "The local Python environment was created but does not run. Please reinstall ShadowWhispr."
         }
         Write-Host "Local Python environment created."
     }
-    else {
-        # An existing environment is left exactly as it is, so upgrading an
-        # install that already finished setup changes nothing.
-        Write-Host "Reusing the existing local Python environment at $venvPath"
-        if ($DetectOnly) {
-            try { Stop-Transcript | Out-Null } catch {}
-            exit 0
-        }
-    }
 
     Write-Step -Percent 18 -Message "Preparing the package installer (pip)"
-    Invoke-WithRetry -Description "Updating pip" -Action {
-        & $venvPython -m pip install --upgrade pip wheel
+    Invoke-WithRetry -Description "Updating pip" `
+        -Exe $venvPython -Arguments @("-m", "pip", "install", "--upgrade", "pip", "wheel")
+
+    if (-not (Test-Path -LiteralPath $requirementsPath)) {
+        throw "The package list is missing from $requirementsPath. Please reinstall ShadowWhispr."
     }
 
     Write-Step -Percent 22 -Message "Downloading speech and CUDA packages (about 2 GB)"
-    Invoke-WithRetry -Description "Installing the speech-to-text packages" -Action {
-        & $venvPython -m pip install --requirement $requirementsPath
-    }
+    Invoke-WithRetry -Description "Installing the speech-to-text packages" `
+        -Exe $venvPython -Arguments @("-m", "pip", "install", "--requirement", $requirementsPath)
 
     Write-Step -Percent 58 -Message "Checking your NVIDIA GPU"
     & $venvPython -c "import torch; assert torch.cuda.is_available(), 'CUDA is unavailable'; print('CUDA ready:', torch.cuda.get_device_name(0))"
@@ -184,9 +272,8 @@ snapshot_download(
     ],
 )
 "@
-    Invoke-WithRetry -Description "Downloading the speech model" -Action {
-        & $venvPython -c $downloadScript
-    }
+    Invoke-WithRetry -Description "Downloading the speech model" `
+        -Exe $venvPython -Arguments @("-c", $downloadScript)
 
     # Prove the engine really starts before declaring setup finished: launch the
     # worker exactly like the app does and wait for its ready message. Freshly
