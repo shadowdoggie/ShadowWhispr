@@ -11,6 +11,12 @@
     Everything is logged to setup-log.txt next to the app. On failure the
     window stays open with the error instead of closing, and download steps
     retry automatically before giving up.
+
+    Progress is also emitted as machine-readable "##SW## percent|message" lines
+    so ShadowWhispr can show an in-app progress screen instead of making the
+    user read a console. Failures emit "##SWERR## message". Keep this file pure
+    ASCII: Windows PowerShell 5.1 reads unsigned UTF-8 as ANSI and a non-ASCII
+    character inside a quoted string breaks parsing.
 #>
 [CmdletBinding()]
 param()
@@ -25,6 +31,18 @@ $logPath = Join-Path $repoRoot "setup-log.txt"
 
 # Version used if we have to download Python ourselves.
 $PythonVersion = "3.12.8"
+
+# Emits one progress line for ShadowWhispr's in-app setup screen, plus the same
+# text for anyone watching the console or reading setup-log.txt afterwards.
+function Write-Step {
+    param(
+        [int]$Percent,
+        [string]$Message
+    )
+    Write-Host ""
+    Write-Host "[$Percent%] $Message"
+    Write-Host "##SW## $Percent|$Message"
+}
 
 function Resolve-Python312 {
     # 1) py launcher with an explicit 3.12 request
@@ -92,8 +110,10 @@ try { Start-Transcript -Path $logPath | Out-Null } catch {}
 try {
     # --- Make sure we have a Python 3.12 to build the venv with -------------
     if (-not (Test-Path -LiteralPath $venvPython)) {
+        Write-Step -Percent 2 -Message "Looking for Python 3.12"
         $python = Resolve-Python312
         if (-not $python) {
+            Write-Step -Percent 6 -Message "Installing Python 3.12 (one-time, no admin needed)"
             Install-Python312
             $python = Resolve-Python312
         }
@@ -101,7 +121,7 @@ try {
             throw "Could not find or install Python 3.12 automatically. Please install it from https://www.python.org/downloads/ and run this again."
         }
 
-        Write-Host "Creating the local Python environment..."
+        Write-Step -Percent 14 -Message "Creating the local Python environment"
         $pythonExe = $python[0]
         $pythonArgs = @()
         if ($python.Count -gt 1) { $pythonArgs = $python[1..($python.Count - 1)] }
@@ -111,15 +131,17 @@ try {
         }
     }
 
-    Write-Host "Installing Parakeet v3 and CUDA support (this downloads ~2-3 GB)..."
+    Write-Step -Percent 18 -Message "Preparing the installer"
     Invoke-WithRetry -Description "Updating pip" -Action {
         & $venvPython -m pip install --upgrade pip wheel
     }
 
+    Write-Step -Percent 22 -Message "Downloading speech and CUDA packages (about 2 GB)"
     Invoke-WithRetry -Description "Installing the speech-to-text packages" -Action {
         & $venvPython -m pip install --requirement $requirementsPath
     }
 
+    Write-Step -Percent 58 -Message "Checking your NVIDIA GPU"
     & $venvPython -c "import torch; assert torch.cuda.is_available(), 'CUDA is unavailable'; print('CUDA ready:', torch.cuda.get_device_name(0))"
     if ($LASTEXITCODE -ne 0) {
         throw "PyTorch cannot use the NVIDIA GPU. Check that you have an NVIDIA GPU and current driver, then run this again."
@@ -128,7 +150,7 @@ try {
     # Download the pinned model revision into a plain folder of real files next
     # to the app. The worker loads only from this folder (see stt\worker.py) -
     # no Hugging Face cache, no symlinks, no network at engine start.
-    Write-Host "Downloading the Parakeet speech model (about 2.4 GB, one-time)..."
+    Write-Step -Percent 62 -Message "Downloading the speech model (about 2.4 GB)"
     $modelDir = Join-Path $repoRoot "speech-model"
     $downloadScript = @"
 from huggingface_hub import snapshot_download
@@ -154,7 +176,7 @@ snapshot_download(
     # worker exactly like the app does and wait for its ready message. Freshly
     # downloaded model files can be briefly locked by antivirus scanning, so a
     # failed first check gets one more chance after a cool-down.
-    Write-Host "Verifying the speech engine starts (this can take a minute)..."
+    Write-Step -Percent 90 -Message "Starting the speech engine for the first time"
     $workerPath = Join-Path $repoRoot "stt\worker.py"
     $readyLine = $null
     for ($attempt = 1; $attempt -le 2; $attempt++) {
@@ -183,12 +205,13 @@ snapshot_download(
     # so an interrupted setup is retried instead of half-loading.
     Set-Content -LiteralPath (Join-Path $venvPath "setup-complete") -Value "ok" -Encoding ascii
 
-    Write-Host ""
+    Write-Step -Percent 100 -Message "Setup complete"
     Write-Host "Speech-to-text setup is ready. You can close this window and use ShadowWhispr."
     try { Stop-Transcript | Out-Null } catch {}
 }
 catch {
     Write-Host ""
+    Write-Host "##SWERR## $($_.Exception.Message)"
     Write-Host "SETUP FAILED: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host ""
     Write-Host "A full log was saved to: $logPath" -ForegroundColor Yellow

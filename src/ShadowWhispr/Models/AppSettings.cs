@@ -3,6 +3,13 @@ namespace ShadowWhispr.Models;
 public sealed class AppSettings
 {
     public string Hotkey { get; set; } = "Right Ctrl";
+
+    /// <summary>
+    /// Optional second hold hotkey that dictates with AI cleanup skipped, so the
+    /// raw Parakeet transcript is typed as-is. Empty means "not configured".
+    /// </summary>
+    public string RawHotkey { get; set; } = string.Empty;
+
     public bool AiEnabled { get; set; }
     public string Provider { get; set; } = "Claude";
     public string ModelId { get; set; } = "claude-sonnet-5";
@@ -16,4 +23,18 @@ public sealed class AppSettings
     /// never has to download and run an installer by hand.
     /// </summary>
     public bool AutoUpdateEnabled { get; set; } = true;
+
+    /// <summary>
+    /// When true, closing the main window hides ShadowWhispr to the system tray
+    /// instead of quitting, so the hold hotkey keeps working. Quitting for real
+    /// is always available from the tray menu.
+    /// </summary>
+    public bool KeepRunningInTray { get; set; } = true;
+
+    /// <summary>
+    /// Starts ShadowWhispr automatically (hidden in the tray) when Windows starts.
+    /// Off by default — this is opt-in, and the checkbox in the app is the only
+    /// thing that writes the Windows "Run" registry entry.
+    /// </summary>
+    public bool StartWithWindows { get; set; }
 }

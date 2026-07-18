@@ -18,6 +18,9 @@ public partial class MainWindow : Window
     private static readonly Brush ErrorRed = new SolidColorBrush(Color.FromRgb(223, 74, 74));
     private static readonly Brush LineGray = new SolidColorBrush(Color.FromRgb(53, 65, 78));
 
+    /// <summary>Shown in the second hotkey field when no raw hotkey is assigned.</summary>
+    private const string RawHotkeyUnsetLabel = "Not set";
+
     private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromMilliseconds(600);
 
     private readonly SettingsService _settingsService = new();
@@ -29,6 +32,8 @@ public partial class MainWindow : Window
     private readonly TextInsertionService _inserter = new();
     private readonly OverlayWindow _overlay = new();
     private readonly UpdateService _updates = new();
+    private readonly TrayIconService _tray = new();
+    private readonly SpeechSetupService _speechSetup = new();
     private string? _pendingInstallerPath;
     private System.Windows.Threading.DispatcherTimer? _updatePollTimer;
     private System.Windows.Threading.DispatcherTimer? _updateRepromptTimer;
@@ -45,10 +50,19 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _lifetime;
     private CancellationTokenSource? _modelRefresh;
     private int _modelRefreshGeneration;
-    private bool _capturingHotkey;
+    private Button? _capturingHotkeyButton;
     private string _hotkeyBeforeCapture = "Right Ctrl";
     private string? _setupScriptPath;
     private bool _setupAttempted;
+    private bool _setupRunning;
+
+    /// <summary>Which hotkey started the recording, so its release applies the matching treatment.</summary>
+    private HotkeyKind _activeHotkeyKind = HotkeyKind.Primary;
+
+    /// <summary>Set only by a real quit request; a plain window close hides to the tray instead.</summary>
+    private bool _exitRequested;
+
+    private double _setupPercent;
 
     public MainWindow()
     {
@@ -59,6 +73,14 @@ public partial class MainWindow : Window
         _hotkey.Released += OnHotkeyReleased;
         _audio.RecordingFailed += (_, ex) => AppLog.Write("Audio recording failed", ex);
         _tones.PlaybackFailed += (_, ex) => AppLog.Write("Cue tone playback failed", ex);
+        _speechSetup.Progress += OnSetupProgress;
+        _tray.OpenRequested += (_, _) => ShowFromTray();
+        _tray.QuitRequested += (_, _) => RequestExit();
+        _tray.CheckUpdatesRequested += (_, _) =>
+        {
+            ShowFromTray();
+            _ = RunUpdateCheckAsync(manual: true, _lifetime?.Token ?? default);
+        };
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -71,9 +93,28 @@ public partial class MainWindow : Window
         _overlay.Owner = null;
         _overlay.Show();
 
+        _tray.Visible = true;
+        _tray.SetStatus("Starting…");
+        if (Application.Current is App app)
+        {
+            app.ShowWindowRequested += (_, _) => ShowFromTray();
+            if (app.StartHiddenInTray)
+            {
+                // Launched by Windows at login: stay out of the way entirely.
+                // App showed this minimized and off-taskbar to get here without
+                // anything appearing on screen; restore both for when the user
+                // later opens it from the tray.
+                AppLog.Write("Started with --tray; hiding the main window");
+                Hide();
+                ShowInTaskbar = true;
+                WindowState = WindowState.Maximized;
+            }
+        }
+
         try
         {
             _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
+            _hotkey.RawHotkey = ParseOptionalHotkey(_settings.RawHotkey);
             _hotkey.Start();
         }
         catch (Exception ex)
@@ -91,6 +132,61 @@ public partial class MainWindow : Window
             StartUpdatePolling();
             _ = RunUpdateCheckAsync(manual: false, _lifetime.Token);
         }
+    }
+
+    // --- System tray and shutdown ----------------------------------------
+
+    /// <summary>Brings the window back from the tray and puts it in front.</summary>
+    private void ShowFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Maximized;
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+    }
+
+    /// <summary>The only path that actually quits: the tray menu's Quit item.</summary>
+    private void RequestExit()
+    {
+        AppLog.Write("Quit requested from the tray menu");
+        _exitRequested = true;
+        Close();
+    }
+
+    private void TrayOptionToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        AppLog.Write($"Keep running in tray set to {_settings.KeepRunningInTray}");
+    }
+
+    /// <summary>
+    /// Writes (or removes) the Windows startup entry. The checkbox is snapped
+    /// back to the real registry state if Windows refuses the change, so it can
+    /// never claim autostart is on when it isn't.
+    /// </summary>
+    private void StartWithWindowsToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady) return;
+
+        var wanted = StartWithWindowsCheck.IsChecked == true;
+        if (StartupService.Apply(wanted))
+        {
+            StartupStatus.Text = wanted
+                ? "ShadowWhispr will start hidden in the tray when you log in."
+                : string.Empty;
+        }
+        else
+        {
+            StartupStatus.Text = "Windows refused this change — see app-log.txt";
+            _uiReady = false;
+            StartWithWindowsCheck.IsChecked = StartupService.IsEnabled();
+            _uiReady = true;
+        }
+
+        ReadUiIntoSettings();
     }
 
     // --- Automatic + manual update checking ------------------------------
@@ -217,6 +313,9 @@ public partial class MainWindow : Window
                 var appExe = Environment.ProcessPath;
                 if (appExe is not null && UpdateService.InstallNowAndRestart(installerPath, appExe))
                 {
+                    // A real exit, not a hide-to-tray: the installer needs this
+                    // process gone before it can replace the files.
+                    _exitRequested = true;
                     Close();
                 }
                 else
@@ -272,6 +371,7 @@ public partial class MainWindow : Window
             AppLog.Write($"Speech engine ready on {_parakeet.Device}");
             SetupBanner.Visibility = Visibility.Collapsed;
             SetEngine("Parakeet ready · GPU", ReadyGreen);
+            UpdateTrayStatus();
             if (!_audio.IsRecording && !_busy) _overlay.SetReady();
         }
         catch (OperationCanceledException) { }
@@ -286,11 +386,13 @@ public partial class MainWindow : Window
                 ? "Setup didn't finish. The error stays visible in the PowerShell window and is saved to setup-log.txt in the app folder. Click to try again — it resumes where it left off."
                 : string.Empty;
             SetupBanner.Visibility = Visibility.Visible;
+            UpdateTrayStatus();
         }
         catch (Exception ex)
         {
             AppLog.Write("Speech engine start failed", ex);
             SetEngine("Parakeet needs attention", ErrorRed);
+            _tray.SetStatus("Needs attention");
             SetError(ex.Message);
             if (SetupBanner.Visibility == Visibility.Visible)
             {
@@ -302,6 +404,7 @@ public partial class MainWindow : Window
 
     private async void SetupRunClicked(object sender, RoutedEventArgs e)
     {
+        if (_setupRunning) return;
         if (string.IsNullOrEmpty(_setupScriptPath) || !File.Exists(_setupScriptPath))
         {
             AppLog.Write($"Speech setup script not found at: {_setupScriptPath ?? "(no path)"}");
@@ -309,48 +412,102 @@ public partial class MainWindow : Window
             return;
         }
 
+        _setupRunning = true;
         _setupAttempted = true;
-        AppLog.Write($"Launching speech setup script: {_setupScriptPath}");
         SetupRunButton.IsEnabled = false;
-        SetupStatus.Text = "Setting up… follow the PowerShell window (this can take several minutes).";
+        SetupLogButton.Visibility = Visibility.Visible;
+        SetupProgressPanel.Visibility = Visibility.Visible;
+        SetupStatus.Text = string.Empty;
+        SetSetupProgress(0, "Starting setup…");
 
+        string? failure;
         try
         {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "powershell.exe",
-                UseShellExecute = true,
-                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{_setupScriptPath}\"",
-                WorkingDirectory = Path.GetDirectoryName(_setupScriptPath) ?? AppContext.BaseDirectory
-            };
-            using var process = Process.Start(startInfo);
-            if (process is not null)
-                await process.WaitForExitAsync(_lifetime?.Token ?? default);
+            failure = await _speechSetup.RunAsync(_setupScriptPath, _lifetime?.Token ?? default);
         }
-        catch (OperationCanceledException) { return; }
+        catch (OperationCanceledException)
+        {
+            _setupRunning = false;
+            return;
+        }
         catch (Exception ex)
         {
-            AppLog.Write("Could not launch the speech setup script", ex);
-            SetupStatus.Text = $"Could not start setup: {ex.Message}";
+            AppLog.Write("The speech setup run threw", ex);
+            failure = ex.Message;
+        }
+
+        _setupRunning = false;
+
+        if (failure is not null)
+        {
+            SetSetupProgress(_setupPercent, "Setup stopped");
+            SetupStatus.Text =
+                $"{failure}\n\nThe most common cause is an unstable internet connection. " +
+                "Click \"Set up speech now\" to try again — it resumes where it left off.";
             SetupRunButton.IsEnabled = true;
             return;
         }
 
-        AppLog.Write("Speech setup script window closed; checking the engine");
+        SetSetupProgress(100, "Starting the speech engine…");
         SetupStatus.Text = "Almost done — starting the speech engine (this can take a minute)…";
         await WarmSpeechEngineAsync(_lifetime?.Token ?? default);
     }
 
-    private async void OnHotkeyPressed(object? sender, EventArgs e)
+    private void OnSetupProgress(object? sender, SetupProgressEventArgs e) =>
+        Dispatcher.Invoke(() => SetSetupProgress(e.Percent, e.Message));
+
+    private void SetSetupProgress(double percent, string message)
+    {
+        _setupPercent = Math.Clamp(percent, 0, 100);
+        SetupStepText.Text = message;
+        SetupPercentText.Text = $"{_setupPercent:0}%";
+        UpdateSetupProgressBarWidth();
+    }
+
+    private void SetupProgressTrackSizeChanged(object sender, SizeChangedEventArgs e) =>
+        UpdateSetupProgressBarWidth();
+
+    private void UpdateSetupProgressBarWidth()
+    {
+        var available = SetupProgressTrack.ActualWidth - SetupProgressTrack.BorderThickness.Left
+                        - SetupProgressTrack.BorderThickness.Right;
+        if (available <= 0) return;
+        SetupProgressFill.Width = available * (_setupPercent / 100d);
+    }
+
+    private void OpenSetupLogClicked(object sender, RoutedEventArgs e)
+    {
+        // The setup script writes setup-log.txt beside the app, one level above
+        // the scripts folder it lives in.
+        var scriptDirectory = Path.GetDirectoryName(_setupScriptPath) ?? AppContext.BaseDirectory;
+        var logPath = Path.GetFullPath(Path.Combine(scriptDirectory, "..", "setup-log.txt"));
+        try
+        {
+            if (!File.Exists(logPath))
+            {
+                SetupStatus.Text = $"No setup log yet at {logPath}";
+                return;
+            }
+            Process.Start(new ProcessStartInfo(logPath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write($"Could not open the setup log at {logPath}", ex);
+            SetupStatus.Text = $"Could not open the setup log: {ex.Message}";
+        }
+    }
+
+    private async void OnHotkeyPressed(object? sender, HotkeyEventArgs e)
     {
         if (_busy || _audio.IsRecording) return;
         if (SetupBanner.Visibility == Visibility.Visible) return;
         try
         {
+            _activeHotkeyKind = e.Kind;
             _insertionTarget = _inserter.CaptureTarget();
             _tones.PlayPressed();
             await _audio.StartAsync(_lifetime?.Token ?? default);
-            RunStatus.Text = "Listening…";
+            RunStatus.Text = e.Kind == HotkeyKind.Raw ? "Listening… (raw)" : "Listening…";
             _overlay.SetRecording();
         }
         catch (Exception ex)
@@ -359,7 +516,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OnHotkeyReleased(object? sender, EventArgs e)
+    private async void OnHotkeyReleased(object? sender, HotkeyEventArgs e)
     {
         if (!_audio.IsRecording || _busy) return;
         _busy = true;
@@ -381,7 +538,9 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (_settings.AiEnabled)
+            // The raw hotkey deliberately skips cleanup, so what Parakeet heard
+            // is what gets typed.
+            if (_settings.AiEnabled && _activeHotkeyKind != HotkeyKind.Raw)
             {
                 _overlay.SetWorking("AI cleanup");
                 RunStatus.Text = $"Cleaning with {_settings.Provider}…";
@@ -416,6 +575,18 @@ public partial class MainWindow : Window
     {
         _uiReady = false;
         HotkeyCaptureButton.Content = _settings.Hotkey;
+        RawHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.RawHotkey)
+            ? RawHotkeyUnsetLabel
+            : _settings.RawHotkey;
+        KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
+        // The registry is the truth for autostart: the saved setting could be
+        // stale if the entry was removed outside ShadowWhispr.
+        var autostartActive = StartupService.IsEnabled();
+        StartWithWindowsCheck.IsChecked = autostartActive;
+        _settings.StartWithWindows = autostartActive;
+        StartupStatus.Text = autostartActive
+            ? "ShadowWhispr will start hidden in the tray when you log in."
+            : string.Empty;
         AiEnabledCheck.IsChecked = _settings.AiEnabled;
         SelectComboText(ProviderCombo, _settings.Provider);
         InstructionBox.Text = _settings.CustomInstruction;
@@ -595,20 +766,21 @@ public partial class MainWindow : Window
     private void HotkeyCaptureMouseDown(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        if (_capturingHotkey) return;
+        if (_capturingHotkeyButton is not null) return;
+        if (sender is not Button button) return;
 
-        _capturingHotkey = true;
-        _hotkeyBeforeCapture = HotkeyCaptureButton.Content?.ToString() ?? _settings.Hotkey;
+        _capturingHotkeyButton = button;
+        _hotkeyBeforeCapture = button.Content?.ToString() ?? _settings.Hotkey;
         _hotkey.Enabled = false;
-        HotkeyCaptureButton.Content = "Press a key or combination…";
-        HotkeyCaptureButton.BorderBrush = WorkingGold;
-        HotkeyCaptureButton.Focus();
-        Keyboard.Focus(HotkeyCaptureButton);
+        button.Content = "Press a key or combination…";
+        button.BorderBrush = WorkingGold;
+        button.Focus();
+        Keyboard.Focus(button);
     }
 
     private void HotkeyCaptureKeyDown(object sender, KeyEventArgs e)
     {
-        if (!_capturingHotkey) return;
+        if (_capturingHotkeyButton is null) return;
         e.Handled = true;
 
         var key = GetActualKey(e);
@@ -617,6 +789,14 @@ public partial class MainWindow : Window
             FinishHotkeyCapture(null);
             return;
         }
+
+        // Delete clears the optional second hotkey; the main one always needs a key.
+        if (key is Key.Delete or Key.Back && ReferenceEquals(_capturingHotkeyButton, RawHotkeyCaptureButton))
+        {
+            FinishHotkeyCapture(null, clear: true);
+            return;
+        }
+
         if (IsModifierKey(key)) return;
 
         var virtualKey = KeyInterop.VirtualKeyFromKey(key);
@@ -634,7 +814,7 @@ public partial class MainWindow : Window
 
     private void HotkeyCaptureKeyUp(object sender, KeyEventArgs e)
     {
-        if (!_capturingHotkey) return;
+        if (_capturingHotkeyButton is null) return;
         e.Handled = true;
 
         var key = GetActualKey(e);
@@ -647,21 +827,67 @@ public partial class MainWindow : Window
 
     private void HotkeyCaptureLostFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        if (_capturingHotkey) FinishHotkeyCapture(null);
+        if (_capturingHotkeyButton is not null) FinishHotkeyCapture(null);
     }
 
-    private void FinishHotkeyCapture(HoldHotkey? hotkey)
+    /// <summary>
+    /// Ends hotkey capture for whichever field was being edited. A null hotkey
+    /// keeps the previous binding, unless <paramref name="clear"/> is set, which
+    /// unassigns the optional second hotkey.
+    /// </summary>
+    private void FinishHotkeyCapture(HoldHotkey? hotkey, bool clear = false)
     {
-        var text = hotkey?.ToString() ?? _hotkeyBeforeCapture;
-        _capturingHotkey = false;
-        HotkeyCaptureButton.Content = text;
-        HotkeyCaptureButton.BorderBrush = LineGray;
+        var button = _capturingHotkeyButton;
+        _capturingHotkeyButton = null;
+        if (button is null) return;
 
-        _settings.Hotkey = text;
-        _hotkey.Hotkey = ParseHotkey(text);
+        var isRaw = ReferenceEquals(button, RawHotkeyCaptureButton);
+        var text = clear ? string.Empty : hotkey?.ToString() ?? _hotkeyBeforeCapture;
+
+        // One keypress must never mean two things, so a binding that duplicates
+        // the other field is refused instead of silently shadowing it.
+        if (text.Length > 0)
+        {
+            var other = isRaw ? _settings.Hotkey : _settings.RawHotkey;
+            if (string.Equals(text, other, StringComparison.OrdinalIgnoreCase))
+            {
+                AppLog.Write($"Rejected duplicate hotkey '{text}' for the {(isRaw ? "raw" : "main")} binding");
+                HotkeyHint.Text = $"'{text}' is already used by the other hotkey — pick a different key.";
+                text = isRaw ? _settings.RawHotkey : _settings.Hotkey;
+            }
+            else
+            {
+                ResetHotkeyHint();
+            }
+        }
+        else
+        {
+            ResetHotkeyHint();
+        }
+
+        button.Content = isRaw && text.Length == 0 ? RawHotkeyUnsetLabel : text;
+        button.BorderBrush = LineGray;
+
+        if (isRaw)
+        {
+            _settings.RawHotkey = text;
+            _hotkey.RawHotkey = ParseOptionalHotkey(text);
+            AppLog.Write($"Raw hotkey set to '{(text.Length == 0 ? "(none)" : text)}'");
+        }
+        else
+        {
+            _settings.Hotkey = text;
+            _hotkey.Hotkey = ParseHotkey(text);
+            AppLog.Write($"Main hotkey set to '{text}'");
+        }
+
         _hotkey.Enabled = true;
+        UpdateTrayStatus();
         QueueAutoSave();
     }
+
+    private void ResetHotkeyHint() => HotkeyHint.Text =
+        "Click a field, then press the key you want. Delete clears the second hotkey; Escape cancels.";
 
     private static Key GetActualKey(KeyEventArgs e) => e.Key switch
     {
@@ -679,8 +905,15 @@ public partial class MainWindow : Window
 
     private void ReadUiIntoSettings()
     {
-        if (!_capturingHotkey)
+        // While a field is mid-capture its label is a prompt, not a hotkey.
+        if (_capturingHotkeyButton is null)
+        {
             _settings.Hotkey = HotkeyCaptureButton.Content?.ToString() ?? "Right Ctrl";
+            var raw = RawHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
+            _settings.RawHotkey = raw == RawHotkeyUnsetLabel ? string.Empty : raw;
+        }
+        _settings.KeepRunningInTray = KeepRunningInTrayCheck.IsChecked == true;
+        _settings.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
         _settings.AiEnabled = AiEnabledCheck.IsChecked == true;
         _settings.Provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
         if (ModelCombo.SelectedItem is AiModelOption model) _settings.ModelId = model.Id;
@@ -718,6 +951,12 @@ public partial class MainWindow : Window
     private void SaveSettingsNow()
     {
         _autoSaveTimer?.Stop();
+        // Never write settings read from controls that were never populated.
+        if (!_startupComplete)
+        {
+            AppLog.Write("Skipped a settings save: startup has not completed");
+            return;
+        }
         ReadUiIntoSettings();
         try
         {
@@ -776,14 +1015,57 @@ public partial class MainWindow : Window
     private static HoldHotkey ParseHotkey(string value) =>
         HoldHotkey.TryParse(value, out var hotkey) ? hotkey : HoldHotkey.Default;
 
+    /// <summary>Parses the optional second hotkey; blank or invalid means "not set".</summary>
+    private static HoldHotkey? ParseOptionalHotkey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value == RawHotkeyUnsetLabel) return null;
+        return HoldHotkey.TryParse(value, out var hotkey) ? hotkey : null;
+    }
+
+    /// <summary>
+    /// Keeps the tray tooltip honest about whether dictation is actually armed,
+    /// since that is all the user can see when the window is hidden.
+    /// </summary>
+    private void UpdateTrayStatus()
+    {
+        string status;
+        if (SetupBanner.Visibility == Visibility.Visible) status = "Setup needed";
+        else if (!_parakeet.IsReady) status = "Starting…";
+        else if (string.IsNullOrWhiteSpace(_settings.RawHotkey)) status = $"Hold {_settings.Hotkey}";
+        else status = $"Hold {_settings.Hotkey} · raw {_settings.RawHotkey}";
+
+        _tray.SetStatus(status);
+    }
+
     private void OnClosing(object? sender, CancelEventArgs e)
     {
+        // Closing the window is not quitting: by default ShadowWhispr keeps
+        // running in the tray so the hold hotkey still works. Only the tray's
+        // Quit item (which sets _exitRequested) actually shuts things down.
+        if (!_exitRequested && _settings.KeepRunningInTray)
+        {
+            e.Cancel = true;
+            Hide();
+            SaveSettingsNow();
+            AppLog.Write("Main window closed to the tray; hotkeys stay active");
+            _tray.ShowMessage(
+                "ShadowWhispr is still running",
+                "Your hotkey still works. Quit from this tray icon to stop it.");
+            return;
+        }
+
         AppLog.Write("App closing");
         // Each shutdown step is isolated and logged so one failure can neither
         // hide from the log nor prevent the remaining cleanup from running.
         // Flushes a debounced auto-save that has not fired yet, so a change made
         // in the last moment before closing is still written.
-        RunLogged("save settings on close", () => { ReadUiIntoSettings(); _settingsService.Save(_settings); });
+        // Only save if the UI ever finished loading. Reading half-initialised
+        // controls back into settings would overwrite the user's real choices
+        // with defaults — exactly what a process that exits early would do.
+        if (_startupComplete)
+            RunLogged("save settings on close", () => { ReadUiIntoSettings(); _settingsService.Save(_settings); });
+        else
+            AppLog.Write("Skipped saving settings on close: startup never completed");
         RunLogged("cancel pending work", () => { _lifetime?.Cancel(); _modelRefresh?.Cancel(); });
         RunLogged("stop update timers", () => { _updatePollTimer?.Stop(); _updateRepromptTimer?.Stop(); _autoSaveTimer?.Stop(); });
         RunLogged("stop hotkey hook", _hotkey.Dispose);
@@ -791,6 +1073,7 @@ public partial class MainWindow : Window
         RunLogged("stop audio recorder", _audio.Dispose);
         RunLogged("stop speech engine", () => _parakeet.DisposeAsync().AsTask().GetAwaiter().GetResult());
         RunLogged("close overlay", _overlay.Close);
+        RunLogged("remove tray icon", _tray.Dispose);
         RunLogged("release token sources", () => { _modelRefresh?.Dispose(); _lifetime?.Dispose(); });
 
         // Last of all, once our own files are no longer in use, kick off a
@@ -799,6 +1082,10 @@ public partial class MainWindow : Window
         {
             RunLogged("launch pending update installer", () => UpdateService.InstallOnClose(_pendingInstallerPath));
         }
+
+        // ShutdownMode is OnExplicitShutdown so that hiding to the tray does not
+        // end the process; that makes this the one place that ends it for real.
+        RunLogged("shut down the application", () => Application.Current.Shutdown());
     }
 
     private static void RunLogged(string step, Action action)

@@ -3,16 +3,32 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- Windows Forms is referenced only for NotifyIcon (the system tray icon);
+         WPF has no built-in equivalent. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyName>ShadowWhispr</AssemblyName>
     <RootNamespace>ShadowWhispr</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- WFO0003 asks us to move DPI settings out of app.manifest and into the
+         Windows Forms startup API. This is a WPF app that only borrows
+         NotifyIcon, so the manifest stays authoritative for DPI. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UseWindowsForms adds these as implicit global usings, which then clash
+         with the WPF types of the same name (Application, Brush, Button,
+         ComboBox, KeyEventArgs...). This app is WPF; the only Windows Forms
+         type it uses is NotifyIcon, imported explicitly in TrayIconService. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
   </ItemGroup>
 
   <ItemGroup>

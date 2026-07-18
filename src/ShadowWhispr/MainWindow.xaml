@@ -150,13 +150,17 @@
                         <Border Grid.Column="1" Width="1" Background="{StaticResource LineBrush}" Margin="24,0" />
 
                         <Grid Grid.Column="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="16" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Text="HOLD-TO-TALK HOTKEY" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="HOTKEY — WITH AI CLEANUP" Style="{StaticResource FieldLabel}" />
                                 <Button x:Name="HotkeyCaptureButton"
                                         Content="Right Ctrl"
                                         Style="{StaticResource SecondaryButton}"
@@ -167,15 +171,19 @@
                                         LostKeyboardFocus="HotkeyCaptureLostFocus" />
                             </StackPanel>
                             <StackPanel Grid.Column="2">
-                                <TextBlock Text="SPEECH MODEL" Style="{StaticResource FieldLabel}" />
-                                <Border Height="42" Background="#10141A" BorderBrush="{StaticResource LineBrush}"
-                                        BorderThickness="1" CornerRadius="9" Padding="13,0">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Ellipse Width="7" Height="7" Fill="{StaticResource SuccessBrush}" Margin="0,0,8,0" />
-                                        <TextBlock Text="Parakeet v3" FontWeight="SemiBold" />
-                                    </StackPanel>
-                                </Border>
+                                <TextBlock Text="HOTKEY — RAW TEXT, NO AI" Style="{StaticResource FieldLabel}" />
+                                <Button x:Name="RawHotkeyCaptureButton"
+                                        Content="Not set"
+                                        Style="{StaticResource SecondaryButton}"
+                                        HorizontalContentAlignment="Left"
+                                        PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
+                                        PreviewKeyDown="HotkeyCaptureKeyDown"
+                                        PreviewKeyUp="HotkeyCaptureKeyUp"
+                                        LostKeyboardFocus="HotkeyCaptureLostFocus" />
                             </StackPanel>
+                            <TextBlock x:Name="HotkeyHint" Grid.Row="1" Grid.ColumnSpan="3" Margin="1,9,0,0"
+                                       Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap"
+                                       Text="Click a field, then press the key you want. Delete clears the second hotkey; Escape cancels." />
                         </Grid>
                     </Grid>
                 </Border>
@@ -364,6 +372,19 @@
                                        Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <CheckBox x:Name="KeepRunningInTrayCheck"
+                                      Content="Keep running in the tray when I close this window"
+                                      FontSize="13" VerticalAlignment="Center"
+                                      Checked="TrayOptionToggled" Unchecked="TrayOptionToggled" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <CheckBox x:Name="StartWithWindowsCheck" Content="Start ShadowWhispr when Windows starts"
+                                      FontSize="13" VerticalAlignment="Center"
+                                      Checked="StartWithWindowsToggled" Unchecked="StartWithWindowsToggled" />
+                            <TextBlock x:Name="StartupStatus" Margin="12,0,0,0" Foreground="{StaticResource MutedBrush}"
+                                       FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                             <CheckBox x:Name="AutoUpdateCheck" Content="Automatically check for updates"
                                       FontSize="13" VerticalAlignment="Center"
                                       Checked="AutoUpdateToggled" Unchecked="AutoUpdateToggled" />
@@ -406,16 +427,53 @@
                     <Border Background="#141A1E14" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
                             CornerRadius="9" Padding="12,9" Margin="0,14,0,0">
                         <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="12">
-                            A PowerShell window will open so you can watch progress. It's
-                            safe to leave it running — it closes itself when finished.
+                            You can leave this running and use your PC normally. Progress
+                            is shown here, and everything is also saved to setup-log.txt.
                         </TextBlock>
                     </Border>
+
+                    <!-- Progress readout, hidden until setup is actually running -->
+                    <StackPanel x:Name="SetupProgressPanel" Visibility="Collapsed" Margin="0,18,0,0">
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="SetupStepText" Text="Starting setup…" FontSize="13"
+                                       FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock x:Name="SetupPercentText" Grid.Column="1" Text="0%" FontSize="13"
+                                       FontWeight="SemiBold" Foreground="{StaticResource GoldBrush}"
+                                       VerticalAlignment="Center" Margin="12,0,0,0" />
+                        </Grid>
+                        <Border x:Name="SetupProgressTrack" Height="10" CornerRadius="5" Background="#10141A"
+                                BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                                SizeChanged="SetupProgressTrackSizeChanged">
+                            <Grid HorizontalAlignment="Stretch">
+                                <Border x:Name="SetupProgressFill" Width="0" HorizontalAlignment="Left"
+                                        CornerRadius="5">
+                                    <Border.Background>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                            <GradientStop Color="{StaticResource GoldDark}" Offset="0" />
+                                            <GradientStop Color="{StaticResource GoldBright}" Offset="1" />
+                                        </LinearGradientBrush>
+                                    </Border.Background>
+                                </Border>
+                            </Grid>
+                        </Border>
+                        <TextBlock Text="Big downloads can sit on one step for a while — that's normal."
+                                   Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,8,0,0"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+
                     <StackPanel Orientation="Horizontal" Margin="0,20,0,0" VerticalAlignment="Center">
                         <Button x:Name="SetupRunButton" Content="Set up speech now" Padding="20,11"
                                 FontWeight="SemiBold" Click="SetupRunClicked" />
-                        <TextBlock x:Name="SetupStatus" VerticalAlignment="Center" Margin="16,0,0,0"
-                                   Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" />
+                        <Button x:Name="SetupLogButton" Content="Open setup log" Style="{StaticResource SecondaryButton}"
+                                Padding="14,8" MinHeight="0" FontSize="12" Margin="10,0,0,0"
+                                Visibility="Collapsed" Click="OpenSetupLogClicked" />
                     </StackPanel>
+                    <TextBlock x:Name="SetupStatus" Margin="1,12,0,0"
+                               Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
         </Border>

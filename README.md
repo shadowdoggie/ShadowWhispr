@@ -60,6 +60,8 @@ If your brain works like mine, I hope it helps you get the words out too. 💜
 | 🔒 **Fully local recognition** | NVIDIA Parakeet v3 downloads once and is cached on your PC. Works offline forever after. |
 | 🖊️ **Types anywhere** | Text appears in whatever input is focused — chat, docs, email, code. No copy-pasting. |
 | ⚡ **Your hotkey, your rules** | Click the hotkey field and press any key or modifier combo. Extended keys **F13–F24** supported. |
+| ✌️ **Two hotkeys, two modes** | Set a second hotkey that types the **raw** transcript with AI cleanup skipped. Pick the treatment with your finger, not the settings screen. |
+| 🔔 **Lives in the tray** | Closing the window keeps ShadowWhispr listening from the system tray. Optionally start it with Windows — **off by default**. |
 | 🤖 **Optional AI cleanup** | Polish rough dictation with your **existing** Claude, ChatGPT/Codex, or Google Antigravity login. Off by default. |
 
 ---
@@ -74,7 +76,13 @@ The **first run** installs the local speech environment and downloads the Parake
 
 > **Tip:** Prefer a proper install? Grab the installer from the [latest release](https://github.com/shadowdoggie/ShadowWhispr/releases/latest).
 
-**First launch (installed app):** the very first time you open ShadowWhispr, it offers a one-time **"Set up speech now"** step. That downloads the local speech engine (~2–3 GB) and, if you don't already have **Python 3.12**, installs it for you automatically — no admin needed. A progress window shows what's happening. After that, launches are instant and offline.
+**First launch (installed app):** the very first time you open ShadowWhispr, it offers a one-time **"Set up speech now"** step. That downloads the local speech engine (~2–3 GB) and, if you don't already have **Python 3.12**, installs it for you automatically — no admin needed. Progress is shown **inside the app** — a step name, a progress bar, and live megabytes during the big model download — with no console window to read. If anything goes wrong you get a plain-English message and an **Open setup log** button. After that, launches are instant and offline.
+
+### 🔔 Tray and startup
+
+Closing the ShadowWhispr window doesn't stop it — it keeps running in the system tray so your hotkey still works. **Quit ShadowWhispr** from the tray icon's menu stops it for real, and the tray's tooltip always tells you which hotkeys are armed. You can turn the tray behaviour off with a checkbox.
+
+**Start with Windows** is a separate checkbox and is **off by default**. Turning it on adds a normal per-user startup entry (no admin, no scheduled task) that launches ShadowWhispr straight into the tray; unticking it removes the entry again.
 
 ### Windows may show “Unknown publisher”
 
@@ -104,6 +112,8 @@ For the cleanest results, these are the models I'd reach for:
 | **Claude Opus** | — |
 
 **This is off by default.** With it off, nothing you say ever leaves your machine.
+
+You can also set a **second hotkey** that always skips cleanup, even while AI cleanup is switched on — hold that one instead and the raw local transcript is typed straight out. Both hotkeys are fully configurable, and the second one is optional (press **Delete** while setting it to clear it).
 
 ---
 

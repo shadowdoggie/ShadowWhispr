@@ -189,9 +189,25 @@ public readonly record struct HoldHotkey(int VirtualKey, HotkeyModifiers Modifie
     }
 }
 
+/// <summary>Which of the two configurable hold hotkeys fired.</summary>
+public enum HotkeyKind
+{
+    /// <summary>The main hotkey: transcribe, then apply AI cleanup if enabled.</summary>
+    Primary,
+
+    /// <summary>The optional second hotkey: transcribe and type the raw text.</summary>
+    Raw
+}
+
+public sealed class HotkeyEventArgs(HotkeyKind kind) : EventArgs
+{
+    public HotkeyKind Kind { get; } = kind;
+}
+
 /// <summary>
-/// Detects both edges of a system-wide push-to-talk hotkey without requiring
-/// the ShadowWhispr window to have focus.
+/// Detects both edges of the system-wide push-to-talk hotkeys without requiring
+/// the ShadowWhispr window to have focus. Two bindings are supported from one
+/// hook so that a chord and its plain key can never both fire for one keypress.
 /// </summary>
 public sealed class GlobalHotkeyService : IDisposable
 {
@@ -224,10 +240,11 @@ public sealed class GlobalHotkeyService : IDisposable
     private SynchronizationContext? _eventContext;
     private nint _hookHandle;
     private uint _hookThreadId;
-    private bool _isHeld;
-    private bool _activationKeySuppressed;
+    private HotkeyKind? _heldKind;
+    private int _suppressedActivationKey;
     private bool _disposed;
     private HoldHotkey _hotkey;
+    private HoldHotkey? _rawHotkey;
     private bool _enabled = true;
 
     public GlobalHotkeyService(HoldHotkey? hotkey = null)
@@ -236,11 +253,11 @@ public sealed class GlobalHotkeyService : IDisposable
         _hookProc = KeyboardHookCallback;
     }
 
-    public event EventHandler? Pressed;
-    public event EventHandler? Released;
+    public event EventHandler<HotkeyEventArgs>? Pressed;
+    public event EventHandler<HotkeyEventArgs>? Released;
 
     /// <summary>
-    /// The configured push-to-talk key. It may be changed while the hook is running.
+    /// The main push-to-talk key. It may be changed while the hook is running.
     /// </summary>
     public HoldHotkey Hotkey
     {
@@ -253,7 +270,7 @@ public sealed class GlobalHotkeyService : IDisposable
         }
         set
         {
-            bool raiseReleased;
+            HotkeyKind? released;
             lock (_gate)
             {
                 if (_hotkey == value)
@@ -262,17 +279,56 @@ public sealed class GlobalHotkeyService : IDisposable
                 }
 
                 _hotkey = value;
-                raiseReleased = _isHeld;
-                _isHeld = false;
-                _activationKeySuppressed = false;
-                _keysDown.Clear();
+                released = ResetHeldState();
             }
 
-            if (raiseReleased)
+            RaiseReleased(released);
+        }
+    }
+
+    /// <summary>
+    /// The optional second push-to-talk key that skips AI cleanup. Null disables
+    /// it. A binding identical to <see cref="Hotkey"/> is ignored, because one
+    /// keypress must never mean two different things.
+    /// </summary>
+    public HoldHotkey? RawHotkey
+    {
+        get
+        {
+            lock (_gate)
             {
-                RaiseOnEventContext(Released);
+                return _rawHotkey;
             }
         }
+        set
+        {
+            HotkeyKind? released;
+            lock (_gate)
+            {
+                if (_rawHotkey == value)
+                {
+                    return;
+                }
+
+                _rawHotkey = value;
+                released = ResetHeldState();
+            }
+
+            RaiseReleased(released);
+        }
+    }
+
+    /// <summary>
+    /// Clears any in-progress hold. Callers must hold <see cref="_gate"/>, and
+    /// must raise the returned kind (if any) outside the lock.
+    /// </summary>
+    private HotkeyKind? ResetHeldState()
+    {
+        var held = _heldKind;
+        _heldKind = null;
+        _suppressedActivationKey = 0;
+        _keysDown.Clear();
+        return held;
     }
 
     /// <summary>
@@ -287,18 +343,15 @@ public sealed class GlobalHotkeyService : IDisposable
         }
         set
         {
-            bool raiseReleased;
+            HotkeyKind? released;
             lock (_gate)
             {
                 if (_enabled == value) return;
                 _enabled = value;
-                raiseReleased = _isHeld;
-                _isHeld = false;
-                _activationKeySuppressed = false;
-                _keysDown.Clear();
+                released = ResetHeldState();
             }
 
-            if (raiseReleased) RaiseOnEventContext(Released);
+            RaiseReleased(released);
         }
     }
 
@@ -308,7 +361,7 @@ public sealed class GlobalHotkeyService : IDisposable
         {
             lock (_gate)
             {
-                return _isHeld;
+                return _heldKind is not null;
             }
         }
     }
@@ -351,7 +404,7 @@ public sealed class GlobalHotkeyService : IDisposable
     {
         Thread? thread;
         uint threadId;
-        bool raiseReleased;
+        HotkeyKind? released;
 
         lock (_gate)
         {
@@ -362,10 +415,7 @@ public sealed class GlobalHotkeyService : IDisposable
                 return;
             }
 
-            raiseReleased = _isHeld;
-            _isHeld = false;
-            _activationKeySuppressed = false;
-            _keysDown.Clear();
+            released = ResetHeldState();
         }
 
         if (threadId != 0)
@@ -385,10 +435,7 @@ public sealed class GlobalHotkeyService : IDisposable
             _started = null;
         }
 
-        if (raiseReleased)
-        {
-            RaiseOnEventContext(Released);
-        }
+        RaiseReleased(released);
     }
 
     private void HookThreadMain()
@@ -450,13 +497,13 @@ public sealed class GlobalHotkeyService : IDisposable
         }
 
         int key = unchecked((int)data.VirtualKeyCode);
-        bool raisePressed = false;
-        bool raiseReleased = false;
+        HotkeyKind? pressedKind;
+        HotkeyKind? releasedKind;
         bool suppress;
 
         lock (_gate)
         {
-            bool wasHeld = _isHeld;
+            var wasHeld = _heldKind;
             if (isDown)
             {
                 _keysDown.Add(key);
@@ -466,36 +513,76 @@ public sealed class GlobalHotkeyService : IDisposable
                 _keysDown.Remove(key);
             }
 
-            _isHeld = _enabled && IsConfiguredHotkeyDown(_hotkey);
-            raisePressed = !wasHeld && _isHeld;
-            raiseReleased = wasHeld && !_isHeld;
+            _heldKind = _enabled ? MatchHeldHotkey() : null;
+
+            // A switch straight from one binding to the other (possible when the
+            // two share a key) has to close the first hold before opening the
+            // second, or the app would see two presses and never a release.
+            releasedKind = wasHeld != _heldKind ? wasHeld : null;
+            pressedKind = wasHeld != _heldKind ? _heldKind : null;
+
             suppress = false;
-            if (_enabled && SuppressHotkey && key == _hotkey.VirtualKey)
+            if (_enabled && SuppressHotkey)
             {
-                if (isDown && (_hotkey.Modifiers == HotkeyModifiers.None || wasHeld || _isHeld))
+                if (isDown && _heldKind is not null && key == ActivationKeyFor(_heldKind.Value))
                 {
-                    _activationKeySuppressed = true;
+                    _suppressedActivationKey = key;
                     suppress = true;
                 }
-                else if (isUp && _activationKeySuppressed)
+                else if (isDown && wasHeld is not null && key == ActivationKeyFor(wasHeld.Value))
                 {
-                    _activationKeySuppressed = false;
+                    // Auto-repeat while the key is already held down.
+                    _suppressedActivationKey = key;
+                    suppress = true;
+                }
+                else if (isUp && _suppressedActivationKey == key && key != 0)
+                {
+                    _suppressedActivationKey = 0;
                     suppress = true;
                 }
             }
         }
 
-        if (raisePressed)
+        if (releasedKind is not null)
         {
-            RaiseOnEventContext(Pressed);
+            RaiseOnEventContext(Released, releasedKind.Value);
         }
-        else if (raiseReleased)
+        if (pressedKind is not null)
         {
-            RaiseOnEventContext(Released);
+            RaiseOnEventContext(Pressed, pressedKind.Value);
         }
 
         return suppress ? 1 : CallNextHookEx(_hookHandle, code, wParam, lParam);
     }
+
+    private int ActivationKeyFor(HotkeyKind kind) =>
+        kind == HotkeyKind.Raw ? _rawHotkey?.VirtualKey ?? 0 : _hotkey.VirtualKey;
+
+    /// <summary>
+    /// Decides which binding the currently pressed keys satisfy. The binding
+    /// with more modifiers wins, so configuring "X" and "Ctrl + X" resolves to
+    /// the chord rather than firing whichever happens to be checked first.
+    /// Callers must hold <see cref="_gate"/>.
+    /// </summary>
+    private HotkeyKind? MatchHeldHotkey()
+    {
+        var raw = _rawHotkey;
+        bool primaryDown = IsConfiguredHotkeyDown(_hotkey);
+        bool rawDown = raw is not null && raw.Value != _hotkey && IsConfiguredHotkeyDown(raw.Value);
+
+        if (primaryDown && rawDown)
+        {
+            return ModifierCount(raw!.Value.Modifiers) > ModifierCount(_hotkey.Modifiers)
+                ? HotkeyKind.Raw
+                : HotkeyKind.Primary;
+        }
+        if (primaryDown) return HotkeyKind.Primary;
+        if (rawDown) return HotkeyKind.Raw;
+        return null;
+    }
+
+    private static int ModifierCount(HotkeyModifiers modifiers) =>
+        System.Numerics.BitOperations.PopCount((uint)modifiers);
 
     private bool IsConfiguredHotkeyDown(HoldHotkey hotkey) =>
         IsDown(hotkey.VirtualKey) &&
@@ -510,25 +597,34 @@ public sealed class GlobalHotkeyService : IDisposable
     private bool IsShiftDown() => IsDown(VkShift) || IsDown(VkLShift) || IsDown(VkRShift);
     private bool IsWinDown() => IsDown(0x5B) || IsDown(0x5C);
 
-    private void RaiseOnEventContext(EventHandler? handler)
+    private void RaiseReleased(HotkeyKind? kind)
+    {
+        if (kind is not null)
+        {
+            RaiseOnEventContext(Released, kind.Value);
+        }
+    }
+
+    private void RaiseOnEventContext(EventHandler<HotkeyEventArgs>? handler, HotkeyKind kind)
     {
         if (handler is null)
         {
             return;
         }
 
+        var args = new HotkeyEventArgs(kind);
         SynchronizationContext? context = _eventContext;
         if (context is null)
         {
-            handler(this, EventArgs.Empty);
+            handler(this, args);
             return;
         }
 
         context.Post(static state =>
         {
-            var (sender, callback) = ((GlobalHotkeyService, EventHandler))state!;
-            callback(sender, EventArgs.Empty);
-        }, (this, handler));
+            var (sender, callback, eventArgs) = ((GlobalHotkeyService, EventHandler<HotkeyEventArgs>, HotkeyEventArgs))state!;
+            callback(sender, eventArgs);
+        }, (this, handler, args));
     }
 
     private void ThrowIfDisposed()
