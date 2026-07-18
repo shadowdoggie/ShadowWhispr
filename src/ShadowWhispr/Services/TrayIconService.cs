@@ -1,7 +1,23 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using Forms = System.Windows.Forms;
 
 namespace ShadowWhispr.Services;
+
+/// <summary>
+/// What the tray icon's coloured dot is telling the user. This replaced the
+/// floating bottom-right overlay window, which users found disruptive.
+/// </summary>
+public enum TrayState
+{
+    Starting,
+    Ready,
+    Listening,
+    Working,
+    Error
+}
 
 /// <summary>
 /// The system-tray presence that lets ShadowWhispr keep listening for the hold
@@ -13,7 +29,11 @@ public sealed class TrayIconService : IDisposable
 {
     private readonly Forms.NotifyIcon _icon;
     private readonly Forms.ToolStripMenuItem _statusItem;
-    private Icon? _ownedIcon;
+    private readonly Icon? _baseIcon;
+    private readonly bool _ownsBaseIcon;
+    private Icon? _renderedIcon;
+    private IntPtr _renderedHandle;
+    private TrayState _state = TrayState.Starting;
     private bool _disposed;
 
     public TrayIconService()
@@ -28,14 +48,16 @@ public sealed class TrayIconService : IDisposable
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Quit ShadowWhispr", null, (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty));
 
+        _baseIcon = LoadIcon(out _ownsBaseIcon);
+
         _icon = new Forms.NotifyIcon
         {
-            Icon = LoadIcon(out _ownedIcon),
             Text = "ShadowWhispr",
             ContextMenuStrip = menu,
             Visible = false
         };
         _icon.DoubleClick += (_, _) => OpenRequested?.Invoke(this, EventArgs.Empty);
+        ApplyIcon();
     }
 
     public event EventHandler? OpenRequested;
@@ -46,6 +68,18 @@ public sealed class TrayIconService : IDisposable
     {
         get => _icon.Visible;
         set => _icon.Visible = value;
+    }
+
+    /// <summary>
+    /// Repaints the tray icon with the status colour. Green means ShadowWhispr is
+    /// hearing you; red means idle or a problem; amber means it is busy. Called
+    /// from background threads, so it must not touch WPF.
+    /// </summary>
+    public void SetState(TrayState state)
+    {
+        if (_disposed || _state == state) return;
+        _state = state;
+        ApplyIcon();
     }
 
     /// <summary>
@@ -75,13 +109,81 @@ public sealed class TrayIconService : IDisposable
         }
     }
 
+    private static Color ColourFor(TrayState state) => state switch
+    {
+        TrayState.Listening => Color.FromArgb(83, 211, 137),
+        TrayState.Working => Color.FromArgb(231, 184, 92),
+        TrayState.Starting => Color.FromArgb(231, 184, 92),
+        _ => Color.FromArgb(223, 74, 74)
+    };
+
+    /// <summary>
+    /// Draws the app icon with a status dot badged into its bottom-right corner
+    /// and hands the result to the tray. A failure here must never take the tray
+    /// icon away, so the plain app icon stays as the fallback.
+    /// </summary>
+    private void ApplyIcon()
+    {
+        Icon? fresh = null;
+        IntPtr freshHandle = IntPtr.Zero;
+        try
+        {
+            fresh = RenderBadgedIcon(_state, out freshHandle);
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write($"Drawing the {_state} tray icon failed; using the plain app icon", exception);
+        }
+
+        var previous = _renderedIcon;
+        var previousHandle = _renderedHandle;
+
+        _icon.Icon = fresh ?? _baseIcon ?? SystemIcons.Application;
+        _renderedIcon = fresh;
+        _renderedHandle = freshHandle;
+
+        // Only now that the tray is no longer showing it can the old bitmap icon
+        // be released; GetHicon handles are not freed by Icon.Dispose.
+        previous?.Dispose();
+        if (previousHandle != IntPtr.Zero) DestroyIcon(previousHandle);
+    }
+
+    private Icon RenderBadgedIcon(TrayState state, out IntPtr handle)
+    {
+        const int size = 32;
+        const int dot = 16;
+
+        using var bitmap = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+
+            if (_baseIcon is not null)
+            {
+                using var art = _baseIcon.ToBitmap();
+                graphics.DrawImage(art, new Rectangle(0, 0, size, size));
+            }
+
+            var badge = new Rectangle(size - dot, size - dot, dot - 1, dot - 1);
+            // A dark ring keeps the dot readable over light and dark taskbars.
+            using var ring = new SolidBrush(Color.FromArgb(235, 12, 16, 22));
+            graphics.FillEllipse(ring, Rectangle.Inflate(badge, 2, 2));
+            using var fill = new SolidBrush(ColourFor(state));
+            graphics.FillEllipse(fill, badge);
+        }
+
+        handle = bitmap.GetHicon();
+        return Icon.FromHandle(handle);
+    }
+
     /// <summary>
     /// Uses the executable's own icon so the tray always matches the app icon.
     /// Falls back to a stock icon rather than leaving an invisible tray entry.
     /// </summary>
-    private static Icon LoadIcon(out Icon? owned)
+    private static Icon LoadIcon(out bool owned)
     {
-        owned = null;
+        owned = false;
         try
         {
             var executable = Environment.ProcessPath;
@@ -90,7 +192,7 @@ public sealed class TrayIconService : IDisposable
                 var extracted = Icon.ExtractAssociatedIcon(executable);
                 if (extracted is not null)
                 {
-                    owned = extracted;
+                    owned = true;
                     return extracted;
                 }
             }
@@ -113,12 +215,21 @@ public sealed class TrayIconService : IDisposable
             _icon.Visible = false;
             _icon.ContextMenuStrip?.Dispose();
             _icon.Dispose();
-            _ownedIcon?.Dispose();
-            _ownedIcon = null;
+            _renderedIcon?.Dispose();
+            _renderedIcon = null;
+            if (_renderedHandle != IntPtr.Zero)
+            {
+                DestroyIcon(_renderedHandle);
+                _renderedHandle = IntPtr.Zero;
+            }
+            if (_ownsBaseIcon) _baseIcon?.Dispose();
         }
         catch (Exception exception)
         {
             AppLog.Write("Disposing the tray icon failed", exception);
         }
     }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr handle);
 }

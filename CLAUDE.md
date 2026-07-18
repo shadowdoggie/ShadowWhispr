@@ -28,6 +28,11 @@ will look reasonable and then break on users' machines — do not "simplify" the
 
 ## Tray lifetime (each point was a real bug)
 
+- Live status (idle / listening / busy) is a coloured dot badged onto the **tray
+  icon**, drawn at runtime in `TrayIconService`. The old floating bottom-right
+  overlay window was removed in v0.5.3 as disruptive - do not bring it back. The
+  GetHicon handle behind each drawn icon must be freed with `DestroyIcon`.
+
 - The app keeps running in the tray after the window closes, so the process outlives
   environment changes. Provider CLI lookup must re-read User + Machine PATH from the
   registry (not the process's startup PATH snapshot), pass resolved full paths to

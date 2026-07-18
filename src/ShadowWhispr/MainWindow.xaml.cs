@@ -30,7 +30,6 @@ public partial class MainWindow : Window
     private readonly AudioRecorderService _audio = new();
     private readonly TonePlayer _tones = new();
     private readonly TextInsertionService _inserter = new();
-    private readonly OverlayWindow _overlay = new();
     private readonly UpdateService _updates = new();
     private readonly TrayIconService _tray = new();
     private readonly SpeechSetupService _speechSetup = new();
@@ -98,11 +97,9 @@ public partial class MainWindow : Window
         _settings = _settingsService.Load();
         ApplySettingsToUi();
         SetAuthHint(_settings.Provider);
-        _overlay.Owner = null;
-        _overlay.Show();
-
         _tray.Visible = true;
         _tray.SetStatus("Starting…");
+        _tray.SetState(TrayState.Starting);
         if (Application.Current is App app)
         {
             app.ShowWindowRequested += (_, _) => ShowFromTray();
@@ -376,13 +373,13 @@ public partial class MainWindow : Window
         try
         {
             SetEngine("Loading Parakeet…", WorkingGold);
-            _overlay.SetWorking("Loading speech");
+            _tray.SetState(TrayState.Starting);
             await _parakeet.StartAsync(cancellationToken);
             AppLog.Write($"Speech engine ready on {_parakeet.Device}");
             SetupBanner.Visibility = Visibility.Collapsed;
             SetEngine("Parakeet ready · GPU", ReadyGreen);
             UpdateTrayStatus();
-            if (!_audio.IsRecording && !_busy) _overlay.SetReady();
+            if (!_audio.IsRecording && !_busy) _tray.SetState(TrayState.Ready);
         }
         catch (OperationCanceledException) { }
         catch (SpeechSetupRequiredException ex)
@@ -390,7 +387,7 @@ public partial class MainWindow : Window
             AppLog.Write($"Speech setup required (attempted before: {_setupAttempted})");
             _setupScriptPath = ex.SetupScriptPath;
             SetEngine("Speech setup needed", WorkingGold);
-            _overlay.SetReady();
+            _tray.SetState(TrayState.Ready);
             SetupRunButton.IsEnabled = true;
             SetupStatus.Text = _setupAttempted
                 ? "Setup didn't finish. The error stays visible in the PowerShell window and is saved to setup-log.txt in the app folder. Click to try again — it resumes where it left off."
@@ -403,6 +400,7 @@ public partial class MainWindow : Window
             AppLog.Write("Speech engine start failed", ex);
             SetEngine("Parakeet needs attention", ErrorRed);
             _tray.SetStatus("Needs attention");
+            _tray.SetState(TrayState.Error);
             SetError(ex.Message);
             if (SetupBanner.Visibility == Visibility.Visible)
             {
@@ -518,7 +516,7 @@ public partial class MainWindow : Window
             _tones.PlayPressed();
             await _audio.StartAsync(_lifetime?.Token ?? default);
             RunStatus.Text = e.Kind == HotkeyKind.Raw ? "Listening… (raw)" : "Listening…";
-            _overlay.SetRecording();
+            _tray.SetState(TrayState.Listening);
         }
         catch (Exception ex)
         {
@@ -533,7 +531,7 @@ public partial class MainWindow : Window
         string? recording = null;
         try
         {
-            _overlay.SetWorking("Transcribing");
+            _tray.SetState(TrayState.Working);
             RunStatus.Text = "Transcribing locally…";
             recording = await _audio.StopAsync(_lifetime?.Token ?? default);
             _tones.PlayReleased();
@@ -552,7 +550,7 @@ public partial class MainWindow : Window
             // is what gets typed.
             if (_settings.AiEnabled && _activeHotkeyKind != HotkeyKind.Raw)
             {
-                _overlay.SetWorking("AI cleanup");
+                _tray.SetState(TrayState.Working);
                 RunStatus.Text = $"Cleaning with {_settings.Provider}…";
                 text = await _ai.ProcessAsync(
                     _settings.Provider,
@@ -577,7 +575,7 @@ public partial class MainWindow : Window
         {
             if (recording is not null) _audio.DeleteRecording(recording);
             _busy = false;
-            if (_parakeet.IsReady) _overlay.SetReady();
+            if (_parakeet.IsReady) _tray.SetState(TrayState.Ready);
         }
     }
 
@@ -1038,7 +1036,7 @@ public partial class MainWindow : Window
         {
             RunStatus.Text = "Error";
             TranscriptBox.Text = message;
-            _overlay.SetError();
+            _tray.SetState(TrayState.Error);
         });
     }
 
@@ -1128,7 +1126,6 @@ public partial class MainWindow : Window
         RunLogged("stop tone player", _tones.Dispose);
         RunLogged("stop audio recorder", _audio.Dispose);
         RunLogged("stop speech engine", () => _parakeet.DisposeAsync().AsTask().GetAwaiter().GetResult());
-        RunLogged("close overlay", _overlay.Close);
         RunLogged("remove tray icon", _tray.Dispose);
         RunLogged("release token sources", () => { _modelRefresh?.Dispose(); _lifetime?.Dispose(); });
 
