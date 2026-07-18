@@ -449,9 +449,15 @@ public sealed partial class AiProviderService
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(_commandTimeout);
 
+        // Resolve to a full path rather than letting the OS search this
+        // process's frozen PATH, so a CLI installed after ShadowWhispr started
+        // is still found. Falls back to the bare name if resolution fails, which
+        // keeps the original behaviour rather than inventing a new failure.
+        var executable = FindOnPath(fileName) ?? fileName;
+
         var startInfo = new ProcessStartInfo
         {
-            FileName = fileName,
+            FileName = executable,
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -467,6 +473,11 @@ public sealed partial class AiProviderService
         {
             startInfo.ArgumentList.Add(argument);
         }
+
+        // Hand the CLI an up-to-date PATH as well: these tools shell out to
+        // their own dependencies (node, for one), which this process's stale
+        // snapshot may predate.
+        startInfo.Environment["PATH"] = string.Join(Path.PathSeparator, GetSearchDirectories());
 
         if (environment is not null)
         {
@@ -614,6 +625,18 @@ public sealed partial class AiProviderService
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
 
+    /// <summary>
+    /// Finds a provider CLI, searching this process's PATH <em>and</em> the PATH
+    /// as it currently stands in the registry.
+    ///
+    /// A process gets a snapshot of PATH when it starts and never sees later
+    /// changes. That used to be harmless because closing the window quit
+    /// ShadowWhispr, so the next launch picked up a fresh environment. Now that
+    /// it keeps running in the system tray - potentially for days, and started
+    /// automatically at login - a CLI installed or updated afterwards would stay
+    /// invisible to it until the user thought to fully quit and reopen the app.
+    /// Re-reading the registry keeps detection honest without a restart.
+    /// </summary>
     private static string? FindOnPath(string command)
     {
         var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT")
@@ -621,13 +644,24 @@ public sealed partial class AiProviderService
         var candidates = Path.HasExtension(command)
             ? [command]
             : extensions.Select(extension => command + extension.ToLowerInvariant()).Prepend(command);
+        var candidateList = candidates.ToList();
 
-        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
-                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        var directories = GetSearchDirectories();
+        foreach (var directory in directories)
         {
-            foreach (var candidate in candidates)
+            foreach (var candidate in candidateList)
             {
-                var fullPath = Path.Combine(directory.Trim('"'), candidate);
+                string fullPath;
+                try
+                {
+                    fullPath = Path.Combine(directory, candidate);
+                }
+                catch (ArgumentException)
+                {
+                    // A malformed PATH entry must not stop the rest of the search.
+                    break;
+                }
+
                 if (File.Exists(fullPath))
                 {
                     return fullPath;
@@ -635,7 +669,47 @@ public sealed partial class AiProviderService
             }
         }
 
+        AppLog.Write($"'{command}' was not found in any of the {directories.Count} PATH directories searched");
         return null;
+    }
+
+    /// <summary>
+    /// The directories to search, in order: this process's PATH first (it is
+    /// what child processes will actually inherit), then anything the current
+    /// user or machine PATH has gained since this process started.
+    /// </summary>
+    private static List<string> GetSearchDirectories()
+    {
+        var directories = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddFrom(string? pathValue)
+        {
+            if (string.IsNullOrEmpty(pathValue)) return;
+            foreach (var entry in pathValue.Split(
+                         Path.PathSeparator,
+                         StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var directory = entry.Trim('"');
+                if (directory.Length > 0 && seen.Add(directory)) directories.Add(directory);
+            }
+        }
+
+        AddFrom(Environment.GetEnvironmentVariable("PATH"));
+
+        // Reading these can throw if the registry is unavailable; a stale-but-
+        // working search beats no search at all.
+        try
+        {
+            AddFrom(Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User));
+            AddFrom(Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine));
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write("Could not re-read PATH from the registry; using this process's PATH only", exception);
+        }
+
+        return directories;
     }
 
     private void EnsureIsolatedDirectories()
