@@ -150,7 +150,8 @@
                                                                   VerticalAlignment="Center"
                                                                   TextElement.Foreground="{TemplateBinding Foreground}"
                                                                   Content="{Binding SelectionBoxItem, RelativeSource={RelativeSource AncestorType=ComboBox}}"
-                                                                  ContentTemplate="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource AncestorType=ComboBox}}" />
+                                                                  ContentTemplate="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                                  ContentTemplateSelector="{Binding ItemTemplateSelector, RelativeSource={RelativeSource AncestorType=ComboBox}}" />
                                                 <Path Grid.Column="1" Width="9" Height="5" Stretch="Fill"
                                                       Fill="{StaticResource MutedBrush}"
                                                       Data="M 0 0 L 4.5 4.5 L 9 0 Z"
