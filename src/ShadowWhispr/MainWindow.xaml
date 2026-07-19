@@ -2,7 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ShadowWhispr" Width="920" Height="900" MinWidth="760" MinHeight="680"
-        WindowStartupLocation="CenterScreen" WindowState="Maximized">
+        WindowStartupLocation="CenterScreen" WindowState="Maximized"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        UseLayoutRounding="True">
     <Window.Resources>
         <DropShadowEffect x:Key="CardShadow" BlurRadius="28" ShadowDepth="8" Opacity="0.25" Color="#000000" />
 
@@ -19,13 +22,27 @@
             <Setter Property="Margin" Value="0,0,0,7" />
         </Style>
 
-        <Style x:Key="Card" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="16" />
-            <Setter Property="Padding" Value="24" />
-            <Setter Property="Effect" Value="{StaticResource CardShadow}" />
+        <!-- The shadow lives on an empty border BEHIND the content. Putting the
+             effect on the content border itself makes WPF rasterize everything
+             inside it, which turns all the card text blurry. -->
+        <Style x:Key="Card" TargetType="ContentControl">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContentControl">
+                        <Grid>
+                            <Border Background="{StaticResource PanelBrush}" CornerRadius="16"
+                                    Effect="{StaticResource CardShadow}" />
+                            <Border Background="{StaticResource PanelBrush}"
+                                    BorderBrush="{StaticResource LineBrush}"
+                                    BorderThickness="1" CornerRadius="16" Padding="24">
+                                <ContentPresenter />
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="IconTile" TargetType="Border">
@@ -75,16 +92,19 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <Border Width="52" Height="52" CornerRadius="14" VerticalAlignment="Center">
+                    <Grid VerticalAlignment="Center">
+                        <Border Width="52" Height="52" CornerRadius="14" Background="{StaticResource GoldBrush}">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="18" ShadowDepth="5" Opacity="0.28" Color="#DDB45F" />
+                            </Border.Effect>
+                        </Border>
+                        <Border Width="52" Height="52" CornerRadius="14">
                         <Border.Background>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                 <GradientStop Color="{StaticResource GoldBright}" Offset="0" />
                                 <GradientStop Color="{StaticResource GoldDark}" Offset="1" />
                             </LinearGradientBrush>
                         </Border.Background>
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="18" ShadowDepth="5" Opacity="0.28" Color="#DDB45F" />
-                        </Border.Effect>
                         <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="4" />
@@ -99,7 +119,8 @@
                             <Border Grid.Column="3" Width="2" Height="16" CornerRadius="1" Background="#211A0D" />
                             <Border Grid.Column="4" Width="2" Height="7" CornerRadius="1" Background="#211A0D" />
                         </Grid>
-                    </Border>
+                        </Border>
+                    </Grid>
 
                     <StackPanel Grid.Column="1" Margin="15,0,0,0" VerticalAlignment="Center">
                         <TextBlock Text="SHADOWWHISPR" Style="{StaticResource Eyebrow}" />
@@ -119,7 +140,7 @@
                     </Border>
                 </Grid>
 
-                <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,18">
+                <ContentControl Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,18">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="1.05*" />
@@ -186,9 +207,9 @@
                                        Text="Click a field, then press the key you want. Delete clears the second hotkey; Escape cancels." />
                         </Grid>
                     </Grid>
-                </Border>
+                </ContentControl>
 
-                <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,0,0,18">
+                <ContentControl Grid.Row="2" Style="{StaticResource Card}" Margin="0,0,0,18">
                     <StackPanel>
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -341,9 +362,9 @@
                             </StackPanel>
                         </Grid>
                     </StackPanel>
-                </Border>
+                </ContentControl>
 
-                <Border Grid.Row="3" Style="{StaticResource Card}">
+                <ContentControl Grid.Row="3" Style="{StaticResource Card}">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -369,7 +390,7 @@
                                  IsReadOnly="True" TextWrapping="Wrap" VerticalContentAlignment="Top"
                                  VerticalScrollBarVisibility="Auto" />
                     </Grid>
-                </Border>
+                </ContentControl>
 
                 <Grid Grid.Row="4" Margin="3,20,3,0">
                     <Grid.ColumnDefinitions>
@@ -426,8 +447,8 @@
 
         <!-- First-run speech setup overlay (shown only when .venv is missing) -->
         <Border x:Name="SetupBanner" Visibility="Collapsed" Background="#D60A0D11" Panel.ZIndex="50">
-            <Border Style="{StaticResource Card}" MaxWidth="540" Margin="24"
-                    VerticalAlignment="Center" HorizontalAlignment="Center">
+            <ContentControl Style="{StaticResource Card}" MaxWidth="540" Margin="24"
+                            VerticalAlignment="Center" HorizontalAlignment="Center">
                 <StackPanel>
                     <TextBlock Text="ONE-TIME SETUP" Style="{StaticResource Eyebrow}" />
                     <TextBlock Text="Set up the speech engine" FontSize="21" FontWeight="SemiBold" Margin="0,5,0,0" />
@@ -489,7 +510,7 @@
                     <TextBlock x:Name="SetupStatus" Margin="1,12,0,0"
                                Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" />
                 </StackPanel>
-            </Border>
+            </ContentControl>
         </Border>
     </Grid>
 </Window>

@@ -170,18 +170,24 @@
                             </ToggleButton>
                             <Popup x:Name="Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
                                    AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
-                                <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
-                                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
-                                        Background="{StaticResource PanelRaisedBrush}"
-                                        BorderBrush="{StaticResource LineStrongBrush}"
-                                        BorderThickness="1" CornerRadius="9" Margin="0,5,0,0" Padding="2">
-                                    <Border.Effect>
-                                        <DropShadowEffect BlurRadius="20" ShadowDepth="7" Opacity="0.38" Color="#000000" />
-                                    </Border.Effect>
-                                    <ScrollViewer VerticalScrollBarVisibility="Auto" CanContentScroll="True">
-                                        <ItemsPresenter />
-                                    </ScrollViewer>
-                                </Border>
+                                <!-- Shadow sits on an empty border behind the list; an effect on the
+                                     list border itself would rasterize the item text and blur it. -->
+                                <Grid Margin="0,5,0,0">
+                                    <Border Background="{StaticResource PanelRaisedBrush}" CornerRadius="9">
+                                        <Border.Effect>
+                                            <DropShadowEffect BlurRadius="20" ShadowDepth="7" Opacity="0.38" Color="#000000" />
+                                        </Border.Effect>
+                                    </Border>
+                                    <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                            MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                            Background="{StaticResource PanelRaisedBrush}"
+                                            BorderBrush="{StaticResource LineStrongBrush}"
+                                            BorderThickness="1" CornerRadius="9" Padding="2">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto" CanContentScroll="True">
+                                            <ItemsPresenter />
+                                        </ScrollViewer>
+                                    </Border>
+                                </Grid>
                             </Popup>
                         </Grid>
                         <ControlTemplate.Triggers>
