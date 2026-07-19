@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +10,20 @@ namespace ShadowWhispr.Services;
 public sealed class AudioRecordingEventArgs(string filePath) : EventArgs
 {
     public string FilePath { get; } = filePath;
+}
+
+/// <summary>
+/// A capture device as Windows reports it. Number -1 is the wave mapper, which
+/// always follows whatever Windows currently considers the default microphone.
+/// </summary>
+public sealed record MicrophoneDevice(int Number, string Name)
+{
+    public const int WindowsDefaultNumber = -1;
+    public const string WindowsDefaultName = "Windows default microphone";
+
+    public static MicrophoneDevice WindowsDefault { get; } = new(WindowsDefaultNumber, WindowsDefaultName);
+
+    public bool IsWindowsDefault => Number == WindowsDefaultNumber;
 }
 
 /// <summary>Records microphone audio in the format expected by Parakeet.</summary>
@@ -33,6 +48,87 @@ public sealed class AudioRecorderService : IDisposable, IAsyncDisposable
     public event EventHandler<AudioRecordingEventArgs>? RecordingStarted;
     public event EventHandler<AudioRecordingEventArgs>? RecordingStopped;
     public event EventHandler<Exception>? RecordingFailed;
+
+    /// <summary>
+    /// The name of the microphone recordings should use, matched against the
+    /// devices Windows lists at the moment recording starts. Empty means the
+    /// Windows default. Matching by name (not number) keeps the choice valid
+    /// when plugging or unplugging devices reshuffles the numbering.
+    /// </summary>
+    public string PreferredDeviceName
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _preferredDeviceName;
+            }
+        }
+        set
+        {
+            lock (_gate)
+            {
+                _preferredDeviceName = value ?? string.Empty;
+            }
+        }
+    }
+
+    private string _preferredDeviceName = string.Empty;
+
+    /// <summary>Lists the microphones Windows currently offers, default first.</summary>
+    public static IReadOnlyList<MicrophoneDevice> ListMicrophones()
+    {
+        var devices = new List<MicrophoneDevice> { MicrophoneDevice.WindowsDefault };
+        int count = 0;
+        try
+        {
+            count = WaveInEvent.DeviceCount;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("Could not count the available microphones", ex);
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            try
+            {
+                devices.Add(new MicrophoneDevice(i, WaveInEvent.GetCapabilities(i).ProductName));
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write($"Could not read the name of microphone {i}", ex);
+            }
+        }
+
+        return devices;
+    }
+
+    /// <summary>
+    /// Finds the device number for the preferred microphone. Falls back to the
+    /// Windows default (and says so in the log) when that microphone is gone,
+    /// so dictation keeps working instead of erroring on an unplugged device.
+    /// </summary>
+    private static int ResolveDeviceNumber(string preferredName)
+    {
+        if (string.IsNullOrWhiteSpace(preferredName) ||
+            string.Equals(preferredName, MicrophoneDevice.WindowsDefaultName, StringComparison.OrdinalIgnoreCase))
+        {
+            return MicrophoneDevice.WindowsDefaultNumber;
+        }
+
+        foreach (var device in ListMicrophones())
+        {
+            if (!device.IsWindowsDefault &&
+                string.Equals(device.Name, preferredName, StringComparison.OrdinalIgnoreCase))
+            {
+                return device.Number;
+            }
+        }
+
+        AppLog.Write($"Chosen microphone '{preferredName}' is not connected; using the Windows default instead");
+        return MicrophoneDevice.WindowsDefaultNumber;
+    }
 
     public bool IsRecording
     {
@@ -74,9 +170,11 @@ public sealed class AudioRecorderService : IDisposable, IAsyncDisposable
                 _recordingDirectory,
                 $"shadowwhispr-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}-{Guid.NewGuid():N}.wav");
 
+            int deviceNumber = ResolveDeviceNumber(_preferredDeviceName);
+            AppLog.Write($"Recording from microphone {(deviceNumber == MicrophoneDevice.WindowsDefaultNumber ? "(Windows default)" : $"'{_preferredDeviceName}'")}");
             var waveIn = new WaveInEvent
             {
-                DeviceNumber = 0,
+                DeviceNumber = deviceNumber,
                 WaveFormat = new WaveFormat(16_000, 16, 1),
                 BufferMilliseconds = 50,
                 NumberOfBuffers = 3

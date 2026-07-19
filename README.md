@@ -62,6 +62,8 @@ If your brain works like mine, I hope it helps you get the words out too. 💜
 | 🖊️ **Types anywhere** | Text appears in whatever input is focused — chat, docs, email, code. No copy-pasting. |
 | ⚡ **Your hotkey, your rules** | Click the hotkey field and press any key or modifier combo. Extended keys **F13–F24** supported. |
 | ✌️ **Two hotkeys, two modes** | Set a second hotkey that types the **raw** transcript with AI cleanup skipped. Pick the treatment with your finger, not the settings screen. |
+| 🎙️ **Pick your microphone** | Choose which mic ShadowWhispr records from, or follow the Windows default. The choice is remembered — even if the mic is unplugged for a while. |
+| 📬 **No waiting between messages** | Start dictating the next message while the previous one is still transcribing or being cleaned up. Each one is queued and pasted into the field it was dictated into. |
 | 🔔 **Lives in the tray** | Closing the window keeps ShadowWhispr listening from the system tray. Optionally start it with Windows — **off by default**. |
 | 🤖 **Optional AI cleanup** | Polish rough dictation with your **existing** Claude, ChatGPT/Codex, or Google Antigravity login. Off by default. |
 

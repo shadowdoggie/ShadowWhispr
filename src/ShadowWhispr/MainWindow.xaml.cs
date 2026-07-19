@@ -505,9 +505,22 @@ public partial class MainWindow : Window
         }
     }
 
+    // --- Dictation queue ---------------------------------------------------
+
+    /// <summary>
+    /// One finished recording waiting to be transcribed, cleaned and pasted.
+    /// The insertion target is the one captured when its hotkey went down, so
+    /// each queued message still lands in the field the user was dictating into.
+    /// </summary>
+    private sealed record DictationJob(string RecordingPath, HotkeyKind Kind, TextInsertionTarget Target);
+
+    private readonly Queue<DictationJob> _jobs = new();
+
     private async void OnHotkeyPressed(object? sender, HotkeyEventArgs e)
     {
-        if (_busy || _audio.IsRecording) return;
+        // A recording can start while an earlier message is still being
+        // processed; only an already-running recording blocks a new one.
+        if (_audio.IsRecording) return;
         if (SetupBanner.Visibility == Visibility.Visible) return;
         try
         {
@@ -526,46 +539,106 @@ public partial class MainWindow : Window
 
     private async void OnHotkeyReleased(object? sender, HotkeyEventArgs e)
     {
-        if (!_audio.IsRecording || _busy) return;
-        _busy = true;
-        string? recording = null;
+        if (!_audio.IsRecording) return;
         try
         {
-            _tray.SetState(TrayState.Working);
-            RunStatus.Text = "Transcribing locally…";
-            recording = await _audio.StopAsync(_lifetime?.Token ?? default);
+            var recording = await _audio.StopAsync(_lifetime?.Token ?? default);
             _tones.PlayReleased();
-            if (string.IsNullOrWhiteSpace(recording)) return;
+            if (string.IsNullOrWhiteSpace(recording))
+            {
+                SetQueueStatus("No audio recorded");
+                return;
+            }
 
-            var text = await _parakeet.TranscribeAsync(recording, _lifetime?.Token ?? default);
+            _jobs.Enqueue(new DictationJob(recording, _activeHotkeyKind, _insertionTarget));
+            if (_jobs.Count > 1 || _busy)
+            {
+                AppLog.Write($"Dictation queued behind the one being processed ({_jobs.Count} waiting)");
+            }
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            SetError(ex.Message);
+            return;
+        }
+
+        await ProcessQueueAsync();
+    }
+
+    /// <summary>
+    /// Works through queued dictations one at a time. Re-entrant calls (a new
+    /// recording finishing while an earlier one is still processing) just leave
+    /// their job in the queue for the already-running loop to pick up.
+    /// </summary>
+    private async Task ProcessQueueAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            while (_jobs.Count > 0)
+            {
+                var cancellationToken = _lifetime?.Token ?? default;
+                if (cancellationToken.IsCancellationRequested) break;
+                if (!_audio.IsRecording) _tray.SetState(TrayState.Working);
+                await ProcessJobAsync(_jobs.Dequeue(), cancellationToken);
+            }
+        }
+        finally
+        {
+            _busy = false;
+            if (!_audio.IsRecording && _parakeet.IsReady) _tray.SetState(TrayState.Ready);
+        }
+    }
+
+    /// <summary>
+    /// Transcribes, cleans and pastes one dictation. A failure here only skips
+    /// this message; the rest of the queue still gets processed.
+    /// </summary>
+    private async Task ProcessJobAsync(DictationJob job, CancellationToken cancellationToken)
+    {
+        string? recording = job.RecordingPath;
+        try
+        {
+            SetQueueStatus("Transcribing locally…");
+            var text = await _parakeet.TranscribeAsync(recording, cancellationToken);
             _audio.DeleteRecording(recording);
             recording = null;
             if (string.IsNullOrWhiteSpace(text))
             {
-                RunStatus.Text = "No speech detected";
+                SetQueueStatus("No speech detected");
                 return;
             }
 
             // The raw hotkey deliberately skips cleanup, so what Parakeet heard
             // is what gets typed.
-            if (_settings.AiEnabled && _activeHotkeyKind != HotkeyKind.Raw)
+            if (_settings.AiEnabled && job.Kind != HotkeyKind.Raw)
             {
-                _tray.SetState(TrayState.Working);
-                RunStatus.Text = $"Cleaning with {_settings.Provider}…";
+                SetQueueStatus($"Cleaning with {_settings.Provider}…");
                 text = await _ai.ProcessAsync(
                     _settings.Provider,
                     _settings.ModelId,
                     _settings.Reasoning,
                     _settings.CustomInstruction,
                     text,
-                    _lifetime?.Token ?? default,
+                    cancellationToken,
                     _settings.CodexFastMode);
             }
 
             TranscriptBox.Text = text;
-            RunStatus.Text = "Pasting into the selected field…";
-            await _inserter.InsertTextAsync(text, _insertionTarget, _lifetime?.Token ?? default);
-            RunStatus.Text = "Pasted";
+
+            // Never paste while the user is holding the hotkey dictating the
+            // next message: activating the target window mid-recording would
+            // yank focus around under them. Wait for the release.
+            while (_audio.IsRecording)
+            {
+                await Task.Delay(100, cancellationToken);
+            }
+
+            SetQueueStatus("Pasting into the selected field…");
+            await _inserter.InsertTextAsync(text, job.Target, cancellationToken);
+            SetQueueStatus("Pasted");
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -575,9 +648,18 @@ public partial class MainWindow : Window
         finally
         {
             if (recording is not null) _audio.DeleteRecording(recording);
-            _busy = false;
-            if (_parakeet.IsReady) _tray.SetState(TrayState.Ready);
         }
+    }
+
+    /// <summary>
+    /// Shows processing progress in the status pill, with a queue count when
+    /// messages are waiting. While the user is recording, "Listening…" owns the
+    /// pill and progress updates stay out of its way.
+    /// </summary>
+    private void SetQueueStatus(string text)
+    {
+        if (_audio.IsRecording) return;
+        RunStatus.Text = _jobs.Count > 0 ? $"{text} · {_jobs.Count} waiting" : text;
     }
 
     private void ApplySettingsToUi()
@@ -590,6 +672,8 @@ public partial class MainWindow : Window
         RawHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.RawHotkey)
             ? RawHotkeyUnsetLabel
             : _settings.RawHotkey;
+        RefreshMicrophoneList(_settings.Microphone);
+        _audio.PreferredDeviceName = _settings.Microphone;
         KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
         // The registry is the truth for autostart: the saved setting could be
         // stale if the entry was removed outside ShadowWhispr.
@@ -605,6 +689,55 @@ public partial class MainWindow : Window
         AiOptions.IsEnabled = _settings.AiEnabled;
         AutoUpdateCheck.IsChecked = _settings.AutoUpdateEnabled;
         _uiReady = true;
+    }
+
+    // --- Microphone selection ---------------------------------------------
+
+    /// <summary>
+    /// Fills the microphone dropdown with what Windows currently offers. A saved
+    /// microphone that is unplugged right now still gets an entry, so opening the
+    /// app without it connected cannot silently erase the choice.
+    /// </summary>
+    private void RefreshMicrophoneList(string preferredName)
+    {
+        var wasReady = _uiReady;
+        _uiReady = false;
+        try
+        {
+            var devices = AudioRecorderService.ListMicrophones().ToList();
+            MicrophoneDevice? preferred = null;
+            if (!string.IsNullOrWhiteSpace(preferredName))
+            {
+                preferred = devices.FirstOrDefault(device =>
+                    !device.IsWindowsDefault &&
+                    string.Equals(device.Name, preferredName, StringComparison.OrdinalIgnoreCase));
+                if (preferred is null)
+                {
+                    preferred = new MicrophoneDevice(MicrophoneDevice.WindowsDefaultNumber, preferredName);
+                    devices.Add(preferred);
+                }
+            }
+
+            MicCombo.ItemsSource = devices;
+            MicCombo.SelectedItem = preferred ?? devices[0];
+        }
+        finally
+        {
+            _uiReady = wasReady;
+        }
+    }
+
+    /// <summary>Re-scans devices on open, so a freshly plugged-in mic shows up.</summary>
+    private void MicComboOpened(object sender, EventArgs e) =>
+        RefreshMicrophoneList(_settings.Microphone);
+
+    private void MicChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        _audio.PreferredDeviceName = _settings.Microphone;
+        AppLog.Write($"Microphone set to '{(_settings.Microphone.Length == 0 ? "Windows default" : _settings.Microphone)}'");
+        QueueAutoSave();
     }
 
     private async void ProviderChanged(object sender, SelectionChangedEventArgs e)
@@ -962,6 +1095,15 @@ public partial class MainWindow : Window
             _settings.Hotkey = HotkeyCaptureButton.Content?.ToString() ?? "Right Ctrl";
             var raw = RawHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
             _settings.RawHotkey = raw == RawHotkeyUnsetLabel ? string.Empty : raw;
+        }
+        // The Windows-default entry is stored as empty; a disconnected saved mic
+        // keeps its real name in the list, so its name (not "default") persists.
+        if (MicCombo.SelectedItem is MicrophoneDevice mic)
+        {
+            _settings.Microphone =
+                string.Equals(mic.Name, MicrophoneDevice.WindowsDefaultName, StringComparison.OrdinalIgnoreCase)
+                    ? string.Empty
+                    : mic.Name;
         }
         _settings.KeepRunningInTray = KeepRunningInTrayCheck.IsChecked == true;
         _settings.StartWithWindows = StartWithWindowsCheck.IsChecked == true;

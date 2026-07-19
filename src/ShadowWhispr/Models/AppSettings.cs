@@ -10,6 +10,13 @@ public sealed class AppSettings
     /// </summary>
     public string RawHotkey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The name of the microphone to record from, exactly as Windows lists it.
+    /// Empty means "follow the Windows default microphone". Stored by name so
+    /// the choice survives device numbers reshuffling between sessions.
+    /// </summary>
+    public string Microphone { get; set; } = string.Empty;
+
     public bool AiEnabled { get; set; }
     public string Provider { get; set; } = "Claude";
     public string ModelId { get; set; } = "claude-sonnet-5";
