@@ -35,6 +35,10 @@ Speech recognition runs **entirely on your own machine** using NVIDIA's Parakeet
 
 ### ⌨️ &nbsp; Hold your hotkey &nbsp; → &nbsp; 🎙️ &nbsp; Speak &nbsp; → &nbsp; 📝 &nbsp; Release &nbsp; → &nbsp; text appears
 
+<br>
+
+<img src="docs/main-window.png" alt="The ShadowWhispr main window: hotkey and microphone settings on top, the optional AI cleanup section below." width="720">
+
 </div>
 
 ---
