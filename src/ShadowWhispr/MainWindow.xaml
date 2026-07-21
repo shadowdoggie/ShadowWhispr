@@ -127,17 +127,23 @@
                         <TextBlock Text="Voice to text, without the friction" FontSize="21" FontWeight="SemiBold" Margin="0,4,0,0" />
                     </StackPanel>
 
-                    <Border Grid.Column="2" Background="#C915191F" BorderBrush="{StaticResource LineBrush}"
-                            BorderThickness="1" CornerRadius="18" Padding="13,8" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal">
-                            <Grid Width="11" Height="11" Margin="0,0,9,0" VerticalAlignment="Center">
-                                <Ellipse Fill="#2566D39A" Width="11" Height="11" />
-                                <Ellipse x:Name="EngineDot" Width="7" Height="7" Fill="{StaticResource GoldBrush}" />
-                            </Grid>
-                            <TextBlock x:Name="EngineStatus" Text="Loading Parakeet…" FontSize="12"
-                                       FontWeight="SemiBold" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Border>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="PauseButton" Content="Pause dictation"
+                                Style="{StaticResource SecondaryButton}" Padding="14,7" MinHeight="0"
+                                FontSize="12" Margin="0,0,12,0" Click="PauseClicked"
+                                ToolTip="Hand your hotkeys back to other apps until you resume" />
+                        <Border Background="#C915191F" BorderBrush="{StaticResource LineBrush}"
+                                BorderThickness="1" CornerRadius="18" Padding="13,8" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <Grid Width="11" Height="11" Margin="0,0,9,0" VerticalAlignment="Center">
+                                    <Ellipse Fill="#2566D39A" Width="11" Height="11" />
+                                    <Ellipse x:Name="EngineDot" Width="7" Height="7" Fill="{StaticResource GoldBrush}" />
+                                </Grid>
+                                <TextBlock x:Name="EngineStatus" Text="Loading Parakeet…" FontSize="12"
+                                           FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
                 </Grid>
 
                 <ContentControl Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,18">

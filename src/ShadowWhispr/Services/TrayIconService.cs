@@ -78,6 +78,17 @@ public sealed class TrayIconService : IDisposable
     }
 
     /// <summary>
+    /// The "Pause dictation" tick. Setting it keeps the menu in sync when the
+    /// pause was toggled from the main window instead; a real change still
+    /// raises <see cref="PauseToggled"/>, which callers must guard against.
+    /// </summary>
+    public bool Paused
+    {
+        get => _pauseItem.Checked;
+        set => _pauseItem.Checked = value;
+    }
+
+    /// <summary>
     /// Repaints the tray icon with the status colour. Green means ShadowWhispr is
     /// hearing you; red means idle or a problem; amber means it is busy. Called
     /// from background threads, so it must not touch WPF.

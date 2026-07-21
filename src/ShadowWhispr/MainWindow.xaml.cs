@@ -1243,13 +1243,19 @@ public partial class MainWindow : Window
     {
         if (_dictationPaused == paused) return;
         _dictationPaused = paused;
-        AppLog.Write(paused ? "Dictation paused from the tray" : "Dictation resumed from the tray");
+        AppLog.Write(paused ? "Dictation paused" : "Dictation resumed");
 
         // Capture mode owns Enabled while it is listening for a new binding;
         // FinishHotkeyCapture re-applies the paused state afterwards.
         if (_capturingHotkeyButton is null) _hotkey.Enabled = !paused;
+
+        _tray.Paused = paused;
+        PauseButton.Content = paused ? "Resume dictation" : "Pause dictation";
         UpdateTrayStatus();
     }
+
+    private void PauseClicked(object sender, RoutedEventArgs e) =>
+        SetDictationPaused(!_dictationPaused);
 
     /// <summary>
     /// Keeps the tray tooltip honest about whether dictation is actually armed,
