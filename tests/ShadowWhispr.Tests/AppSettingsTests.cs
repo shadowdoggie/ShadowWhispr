@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ShadowWhispr.Models;
 using Xunit;
 
@@ -5,6 +6,23 @@ namespace ShadowWhispr.Tests;
 
 public sealed class AppSettingsTests
 {
+    [Fact]
+    public void ToggleHotkeyStartsUnsetAndRoundTrips()
+    {
+        Assert.Equal(string.Empty, new AppSettings().ToggleHotkey);
+
+        var settings = new AppSettings { ToggleHotkey = "F9" };
+        var reloaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings));
+        Assert.Equal("F9", reloaded!.ToggleHotkey);
+    }
+
+    [Fact]
+    public void SettingsFileFromBeforeToggleHotkeyLoadsAsUnset()
+    {
+        var reloaded = JsonSerializer.Deserialize<AppSettings>("""{ "Hotkey": "Right Ctrl" }""");
+        Assert.Equal(string.Empty, reloaded!.ToggleHotkey);
+    }
+
     [Fact]
     public void NewInstallStartsWithRequestedCustomInstruction()
     {

@@ -11,6 +11,13 @@ public sealed class AppSettings
     public string RawHotkey { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional tap hotkey: press once to start recording, press again to stop,
+    /// with no key held in between. The result is treated exactly like the main
+    /// hotkey (AI cleanup applies when enabled). Empty means "not configured".
+    /// </summary>
+    public string ToggleHotkey { get; set; } = string.Empty;
+
+    /// <summary>
     /// The name of the microphone to record from, exactly as Windows lists it.
     /// Empty means "follow the Windows default microphone". Stored by name so
     /// the choice survives device numbers reshuffling between sessions.

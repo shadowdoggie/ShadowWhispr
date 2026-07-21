@@ -184,7 +184,9 @@
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
@@ -209,10 +211,21 @@
                                         PreviewKeyUp="HotkeyCaptureKeyUp"
                                         LostKeyboardFocus="HotkeyCaptureLostFocus" />
                             </StackPanel>
-                            <TextBlock x:Name="HotkeyHint" Grid.Row="1" Grid.ColumnSpan="3" Margin="1,9,0,0"
+                            <StackPanel Grid.Column="4">
+                                <TextBlock Text="HOTKEY — TAP TO START/STOP" Style="{StaticResource FieldLabel}" />
+                                <Button x:Name="ToggleHotkeyCaptureButton"
+                                        Content="Not set"
+                                        Style="{StaticResource SecondaryButton}"
+                                        HorizontalContentAlignment="Left"
+                                        PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
+                                        PreviewKeyDown="HotkeyCaptureKeyDown"
+                                        PreviewKeyUp="HotkeyCaptureKeyUp"
+                                        LostKeyboardFocus="HotkeyCaptureLostFocus" />
+                            </StackPanel>
+                            <TextBlock x:Name="HotkeyHint" Grid.Row="1" Grid.ColumnSpan="5" Margin="1,9,0,0"
                                        Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap"
-                                       Text="Click a field, then press the key you want. Delete clears the second hotkey; Escape cancels." />
-                            <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,16,0,0">
+                                       Text="Click a field, then press the key you want. Delete clears an optional hotkey; Escape cancels. The tap hotkey starts recording with one press and stops with the next — no holding needed." />
+                            <StackPanel Grid.Row="2" Grid.ColumnSpan="5" Margin="0,16,0,0">
                                 <TextBlock Text="MICROPHONE" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="MicCombo" DisplayMemberPath="Name"
                                           DropDownOpened="MicComboOpened" SelectionChanged="MicChanged" />
