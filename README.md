@@ -115,7 +115,7 @@ For the cleanest results, these are the models I'd reach for:
 | Model | Notes |
 |---|---|
 | **GPT 5.6 Sol** | Use **medium** effort reasoning mode |
-| **Gemini 3.1 Pro** | — |
+| **Gemini 3.6 Flash** | — |
 | **Claude Opus** | — |
 
 **This is off by default.** With it off, nothing you say ever leaves your machine.

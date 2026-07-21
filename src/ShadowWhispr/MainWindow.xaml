@@ -260,7 +260,7 @@
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <Ellipse Width="6" Height="6" Fill="{StaticResource GoldBrush}"
                                                      Margin="0,0,9,0" VerticalAlignment="Center" />
-                                            <TextBlock Text="Gemini 3.1 Pro" FontSize="12.5" FontWeight="SemiBold"
+                                            <TextBlock Text="Gemini 3.6 Flash" FontSize="12.5" FontWeight="SemiBold"
                                                        VerticalAlignment="Center" />
                                         </StackPanel>
                                     </Border>

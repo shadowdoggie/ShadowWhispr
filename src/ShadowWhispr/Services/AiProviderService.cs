@@ -24,6 +24,13 @@ public sealed partial class AiProviderService
         new(Claude, "claude-haiku-4-5", "Claude Haiku 4.5", [], null)
     ];
 
+    private static readonly IReadOnlyList<AiModelOption> DefaultGeminiModels =
+    [
+        new(Gemini, "gemini-3.6-flash", "Gemini 3.6 Flash", ["low", "medium", "high"], "high"),
+        new(Gemini, "gemini-3.5-flash", "Gemini 3.5 Flash", ["low", "medium", "high"], "high"),
+        new(Gemini, "gemini-3.1-pro", "Gemini 3.1 Pro", ["low", "high"], "high")
+    ];
+
     /// <summary>The speed tier Codex's model cache lists for fast-capable models.</summary>
     private const string FastSpeedTier = "fast";
 
@@ -283,51 +290,128 @@ public sealed partial class AiProviderService
 
     private async Task<IReadOnlyList<AiModelOption>> DiscoverGeminiModelsAsync(CancellationToken cancellationToken)
     {
-        var result = await RunAsync(
-            GetCommand(Gemini),
-            ["models"],
-            standardInput: null,
-            workingDirectory: _isolatedWorkDirectory,
-            environment: null,
-            cancellationToken);
-
-        EnsureSuccess(Gemini, result);
-        var grouped = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var rawLine in SplitLines(result.StandardOutput))
+        ProcessResult? result = null;
+        try
         {
-            var line = rawLine.Trim();
-            if (!line.StartsWith("Gemini ", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+            result = await RunAsync(
+                GetCommand(Gemini),
+                ["models"],
+                standardInput: null,
+                workingDirectory: _isolatedWorkDirectory,
+                environment: null,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write($"Failed to discover Gemini models: {exception.Message}");
+        }
 
-            var match = ModelWithEffortRegex().Match(line);
-            var modelName = match.Success ? match.Groups["model"].Value.Trim() : line;
-            var effort = match.Success ? match.Groups["effort"].Value.ToLowerInvariant() : null;
-            if (!grouped.TryGetValue(modelName, out var efforts))
-            {
-                efforts = [];
-                grouped[modelName] = efforts;
-            }
+        var grouped = new Dictionary<string, (string DisplayName, List<string> Efforts)>(StringComparer.OrdinalIgnoreCase);
 
-            AddUnique(efforts, effort);
+        if (result is not null && result.ExitCode == 0)
+        {
+            foreach (var rawLine in SplitLines(result.StandardOutput))
+            {
+                var line = rawLine.Trim();
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                if (line.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase) ||
+                    line.StartsWith("Gemini ", StringComparison.OrdinalIgnoreCase))
+                {
+                    string id;
+                    string displayName;
+                    string? effort = null;
+
+                    var match = ModelWithEffortRegex().Match(line);
+                    if (match.Success)
+                    {
+                        var modelName = match.Groups["model"].Value.Trim();
+                        effort = match.Groups["effort"].Value.ToLowerInvariant();
+                        id = FormatGeminiSlug(modelName);
+                        displayName = FormatGeminiDisplayName(modelName);
+                    }
+                    else
+                    {
+                        var parts = line.Split('-');
+                        var lastPart = parts[^1].ToLowerInvariant();
+                        if (parts.Length > 2 && ReasoningOrder.Contains(lastPart))
+                        {
+                            effort = lastPart;
+                            var baseSlug = string.Join('-', parts[..^1]);
+                            id = baseSlug;
+                            displayName = FormatGeminiDisplayName(baseSlug);
+                        }
+                        else
+                        {
+                            id = FormatGeminiSlug(line);
+                            displayName = FormatGeminiDisplayName(line);
+                        }
+                    }
+
+                    if (!grouped.TryGetValue(id, out var entry))
+                    {
+                        entry = (displayName, []);
+                        grouped[id] = entry;
+                    }
+
+                    AddUnique(entry.Efforts, effort);
+                }
+            }
+        }
+
+        if (grouped.Count == 0)
+        {
+            return DefaultGeminiModels;
         }
 
         return grouped
             .Select(pair =>
             {
-                var efforts = SortReasoningLevels(pair.Value);
+                var efforts = SortReasoningLevels(pair.Value.Efforts);
+                var defaultEffort = efforts.Contains("high", StringComparer.OrdinalIgnoreCase)
+                    ? "high"
+                    : (efforts.Contains("medium", StringComparer.OrdinalIgnoreCase)
+                        ? "medium"
+                        : efforts.FirstOrDefault());
+
                 return new AiModelOption(
                     Gemini,
                     pair.Key,
-                    pair.Key,
+                    pair.Value.DisplayName,
                     efforts,
-                    efforts.Contains("medium", StringComparer.OrdinalIgnoreCase)
-                        ? "medium"
-                        : efforts.FirstOrDefault());
+                    defaultEffort);
             })
             .OrderBy(model => model.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static string FormatGeminiDisplayName(string text)
+    {
+        if (text.StartsWith("Gemini ", StringComparison.OrdinalIgnoreCase))
+        {
+            return text;
+        }
+
+        if (text.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = text.Split('-');
+            return string.Join(" ", parts.Select(p => ToTitleCase(p)));
+        }
+
+        return ToTitleCase(text);
+    }
+
+    private static string FormatGeminiSlug(string text)
+    {
+        if (text.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase))
+        {
+            return text.ToLowerInvariant();
+        }
+
+        return text.ToLowerInvariant().Replace(' ', '-');
     }
 
     private async Task<string> ProcessWithClaudeAsync(
@@ -466,9 +550,10 @@ public sealed partial class AiProviderService
         string prompt,
         CancellationToken cancellationToken)
     {
-        var selectedModel = ModelWithEffortRegex().IsMatch(modelId) || string.IsNullOrWhiteSpace(reasoning)
-            ? modelId
-            : $"{modelId} ({ToTitleCase(reasoning)})";
+        var slug = FormatGeminiSlug(modelId);
+        var selectedModel = !string.IsNullOrWhiteSpace(reasoning) && !slug.EndsWith($"-{reasoning.ToLowerInvariant()}", StringComparison.OrdinalIgnoreCase)
+            ? $"{slug}-{reasoning.ToLowerInvariant()}"
+            : slug;
 
         var result = await RunAsync(
             GetCommand(Gemini),
