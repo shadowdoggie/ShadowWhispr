@@ -29,6 +29,7 @@ public sealed class TrayIconService : IDisposable
 {
     private readonly Forms.NotifyIcon _icon;
     private readonly Forms.ToolStripMenuItem _statusItem;
+    private readonly Forms.ToolStripMenuItem _pauseItem;
     private readonly Icon? _baseIcon;
     private readonly bool _ownsBaseIcon;
     private Icon? _renderedIcon;
@@ -39,11 +40,14 @@ public sealed class TrayIconService : IDisposable
     public TrayIconService()
     {
         _statusItem = new Forms.ToolStripMenuItem("Starting…") { Enabled = false };
+        _pauseItem = new Forms.ToolStripMenuItem("Pause dictation") { CheckOnClick = true };
+        _pauseItem.CheckedChanged += (_, _) => PauseToggled?.Invoke(this, _pauseItem.Checked);
 
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(_statusItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Open ShadowWhispr", null, (_, _) => OpenRequested?.Invoke(this, EventArgs.Empty));
+        menu.Items.Add(_pauseItem);
         menu.Items.Add("Check for updates", null, (_, _) => CheckUpdatesRequested?.Invoke(this, EventArgs.Empty));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Quit ShadowWhispr", null, (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty));
@@ -63,6 +67,9 @@ public sealed class TrayIconService : IDisposable
     public event EventHandler? OpenRequested;
     public event EventHandler? QuitRequested;
     public event EventHandler? CheckUpdatesRequested;
+
+    /// <summary>Raised when the user ticks or unticks "Pause dictation" in the menu.</summary>
+    public event EventHandler<bool>? PauseToggled;
 
     public bool Visible
     {

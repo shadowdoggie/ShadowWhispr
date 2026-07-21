@@ -68,6 +68,7 @@ public partial class MainWindow : Window
 
     /// <summary>Set only by a real quit request; a plain window close hides to the tray instead.</summary>
     private bool _exitRequested;
+    private bool _dictationPaused;
 
     private double _setupPercent;
 
@@ -83,6 +84,7 @@ public partial class MainWindow : Window
         _speechSetup.Progress += OnSetupProgress;
         _tray.OpenRequested += (_, _) => ShowFromTray();
         _tray.QuitRequested += (_, _) => RequestExit();
+        _tray.PauseToggled += (_, paused) => SetDictationPaused(paused);
         _tray.CheckUpdatesRequested += (_, _) =>
         {
             ShowFromTray();
@@ -1065,7 +1067,7 @@ public partial class MainWindow : Window
             AppLog.Write($"Main hotkey set to '{text}'");
         }
 
-        _hotkey.Enabled = true;
+        _hotkey.Enabled = !_dictationPaused;
         UpdateTrayStatus();
         QueueAutoSave();
     }
@@ -1233,6 +1235,23 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Pauses or resumes the global hotkeys from the tray, so the dictation keys
+    /// reach games and other apps untouched while paused. Not persisted: a fresh
+    /// start is always armed.
+    /// </summary>
+    private void SetDictationPaused(bool paused)
+    {
+        if (_dictationPaused == paused) return;
+        _dictationPaused = paused;
+        AppLog.Write(paused ? "Dictation paused from the tray" : "Dictation resumed from the tray");
+
+        // Capture mode owns Enabled while it is listening for a new binding;
+        // FinishHotkeyCapture re-applies the paused state afterwards.
+        if (_capturingHotkeyButton is null) _hotkey.Enabled = !paused;
+        UpdateTrayStatus();
+    }
+
+    /// <summary>
     /// Keeps the tray tooltip honest about whether dictation is actually armed,
     /// since that is all the user can see when the window is hidden.
     /// </summary>
@@ -1241,6 +1260,7 @@ public partial class MainWindow : Window
         string status;
         if (SetupBanner.Visibility == Visibility.Visible) status = "Setup needed";
         else if (!_parakeet.IsReady) status = "Starting…";
+        else if (_dictationPaused) status = "Paused";
         else if (string.IsNullOrWhiteSpace(_settings.RawHotkey)) status = $"Hold {_settings.Hotkey}";
         else status = $"Hold {_settings.Hotkey} · raw {_settings.RawHotkey}";
 

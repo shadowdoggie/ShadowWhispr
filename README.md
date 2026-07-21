@@ -89,6 +89,8 @@ The **first run** installs the local speech environment and downloads the Parake
 
 Closing the ShadowWhispr window doesn't stop it — it keeps running in the system tray so your hotkey still works. **Quit ShadowWhispr** from the tray icon's menu stops it for real, and the tray's tooltip always tells you which hotkeys are armed. You can turn the tray behaviour off with a checkbox.
 
+**Pause dictation** in the tray menu temporarily hands your hotkeys back to other apps — handy when a game uses the same keys. Tick it to pause, untick to resume; ShadowWhispr always starts unpaused.
+
 **Start with Windows** is a separate checkbox and is **off by default**. Turning it on adds a normal per-user startup entry (no admin, no scheduled task) that launches ShadowWhispr straight into the tray; unticking it removes the entry again.
 
 ### Windows may show “Unknown publisher”
