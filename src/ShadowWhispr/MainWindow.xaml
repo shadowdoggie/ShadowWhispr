@@ -181,16 +181,15 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="12" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="16" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Text="HOTKEY — WITH AI CLEANUP" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="HOLD — WITH AI CLEANUP" Style="{StaticResource FieldLabel}" />
                                 <Button x:Name="HotkeyCaptureButton"
                                         Content="Right Ctrl"
                                         Style="{StaticResource SecondaryButton}"
@@ -201,7 +200,7 @@
                                         LostKeyboardFocus="HotkeyCaptureLostFocus" />
                             </StackPanel>
                             <StackPanel Grid.Column="2">
-                                <TextBlock Text="HOTKEY — RAW TEXT, NO AI" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="HOLD — RAW TEXT, NO AI" Style="{StaticResource FieldLabel}" />
                                 <Button x:Name="RawHotkeyCaptureButton"
                                         Content="Not set"
                                         Style="{StaticResource SecondaryButton}"
@@ -211,8 +210,8 @@
                                         PreviewKeyUp="HotkeyCaptureKeyUp"
                                         LostKeyboardFocus="HotkeyCaptureLostFocus" />
                             </StackPanel>
-                            <StackPanel Grid.Column="4">
-                                <TextBlock Text="HOTKEY — TAP TO START/STOP" Style="{StaticResource FieldLabel}" />
+                            <StackPanel Grid.Row="1" Margin="0,12,0,0">
+                                <TextBlock Text="TAP — WITH AI CLEANUP" Style="{StaticResource FieldLabel}" />
                                 <Button x:Name="ToggleHotkeyCaptureButton"
                                         Content="Not set"
                                         Style="{StaticResource SecondaryButton}"
@@ -222,10 +221,21 @@
                                         PreviewKeyUp="HotkeyCaptureKeyUp"
                                         LostKeyboardFocus="HotkeyCaptureLostFocus" />
                             </StackPanel>
-                            <TextBlock x:Name="HotkeyHint" Grid.Row="1" Grid.ColumnSpan="5" Margin="1,9,0,0"
+                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,12,0,0">
+                                <TextBlock Text="TAP — RAW TEXT, NO AI" Style="{StaticResource FieldLabel}" />
+                                <Button x:Name="ToggleRawHotkeyCaptureButton"
+                                        Content="Not set"
+                                        Style="{StaticResource SecondaryButton}"
+                                        HorizontalContentAlignment="Left"
+                                        PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
+                                        PreviewKeyDown="HotkeyCaptureKeyDown"
+                                        PreviewKeyUp="HotkeyCaptureKeyUp"
+                                        LostKeyboardFocus="HotkeyCaptureLostFocus" />
+                            </StackPanel>
+                            <TextBlock x:Name="HotkeyHint" Grid.Row="2" Grid.ColumnSpan="3" Margin="1,9,0,0"
                                        Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap"
-                                       Text="Click a field, then press the key you want. Delete clears an optional hotkey; Escape cancels. The tap hotkey starts recording with one press and stops with the next — no holding needed." />
-                            <StackPanel Grid.Row="2" Grid.ColumnSpan="5" Margin="0,16,0,0">
+                                       Text="Hold keys: hold while you speak. Tap keys: press once to start, press again to stop. Click a field, then press the key you want. Delete clears an optional hotkey; Escape cancels." />
+                            <StackPanel Grid.Row="3" Grid.ColumnSpan="3" Margin="0,16,0,0">
                                 <TextBlock Text="MICROPHONE" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="MicCombo" DisplayMemberPath="Name"
                                           DropDownOpened="MicComboOpened" SelectionChanged="MicChanged" />

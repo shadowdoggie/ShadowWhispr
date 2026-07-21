@@ -7,20 +7,23 @@ namespace ShadowWhispr.Tests;
 public sealed class AppSettingsTests
 {
     [Fact]
-    public void ToggleHotkeyStartsUnsetAndRoundTrips()
+    public void TapHotkeysStartUnsetAndRoundTrip()
     {
         Assert.Equal(string.Empty, new AppSettings().ToggleHotkey);
+        Assert.Equal(string.Empty, new AppSettings().ToggleRawHotkey);
 
-        var settings = new AppSettings { ToggleHotkey = "F9" };
+        var settings = new AppSettings { ToggleHotkey = "F9", ToggleRawHotkey = "F10" };
         var reloaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings));
         Assert.Equal("F9", reloaded!.ToggleHotkey);
+        Assert.Equal("F10", reloaded.ToggleRawHotkey);
     }
 
     [Fact]
-    public void SettingsFileFromBeforeToggleHotkeyLoadsAsUnset()
+    public void SettingsFileFromBeforeTapHotkeysLoadsAsUnset()
     {
         var reloaded = JsonSerializer.Deserialize<AppSettings>("""{ "Hotkey": "Right Ctrl" }""");
         Assert.Equal(string.Empty, reloaded!.ToggleHotkey);
+        Assert.Equal(string.Empty, reloaded.ToggleRawHotkey);
     }
 
     [Fact]

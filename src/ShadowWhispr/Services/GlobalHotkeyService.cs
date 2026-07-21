@@ -202,7 +202,13 @@ public enum HotkeyKind
     /// The optional tap hotkey: one press starts recording, the next press stops
     /// it. Treated like <see cref="Primary"/> once the recording ends.
     /// </summary>
-    Toggle
+    Toggle,
+
+    /// <summary>
+    /// The optional raw tap hotkey: starts and stops like <see cref="Toggle"/>,
+    /// but the transcript skips AI cleanup like <see cref="Raw"/>.
+    /// </summary>
+    ToggleRaw
 }
 
 public sealed class HotkeyEventArgs(HotkeyKind kind) : EventArgs
@@ -249,12 +255,13 @@ public sealed class GlobalHotkeyService : IDisposable
     private nint _hookHandle;
     private uint _hookThreadId;
     private HotkeyKind? _heldKind;
-    private bool _toggleActive;
+    private HotkeyKind? _activeToggle;
     private int _suppressedActivationKey;
     private bool _disposed;
     private HoldHotkey _hotkey;
     private HoldHotkey? _rawHotkey;
     private HoldHotkey? _toggleHotkey;
+    private HoldHotkey? _toggleRawHotkey;
     private bool _enabled = true;
 
     public GlobalHotkeyService(HoldHotkey? hotkey = null)
@@ -330,9 +337,8 @@ public sealed class GlobalHotkeyService : IDisposable
 
     /// <summary>
     /// The optional tap hotkey: one press starts recording, the next press
-    /// stops it. Null disables it. A binding identical to <see cref="Hotkey"/>
-    /// or <see cref="RawHotkey"/> is ignored, because one keypress must never
-    /// mean two different things.
+    /// stops it. Null disables it. A binding identical to any other configured
+    /// hotkey is ignored, because one keypress must never mean two things.
     /// </summary>
     public HoldHotkey? ToggleHotkey
     {
@@ -361,19 +367,50 @@ public sealed class GlobalHotkeyService : IDisposable
         }
     }
 
+    /// <summary>
+    /// The optional raw tap hotkey: taps like <see cref="ToggleHotkey"/>, but
+    /// the transcript skips AI cleanup. Null disables it.
+    /// </summary>
+    public HoldHotkey? ToggleRawHotkey
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _toggleRawHotkey;
+            }
+        }
+        set
+        {
+            ReleasedKinds released;
+            lock (_gate)
+            {
+                if (_toggleRawHotkey == value)
+                {
+                    return;
+                }
+
+                _toggleRawHotkey = value;
+                released = ResetHeldState();
+            }
+
+            RaiseReleased(released);
+        }
+    }
+
     /// <summary>The dictations a call to <see cref="ResetHeldState"/> cut short.</summary>
-    private readonly record struct ReleasedKinds(HotkeyKind? Held, bool ToggleWasActive);
+    private readonly record struct ReleasedKinds(HotkeyKind? Held, HotkeyKind? ActiveToggle);
 
     /// <summary>
-    /// Clears any in-progress hold and an active toggle recording. Callers must
+    /// Clears any in-progress hold and an active tap recording. Callers must
     /// hold <see cref="_gate"/>, and must raise the returned kinds (if any)
     /// outside the lock.
     /// </summary>
     private ReleasedKinds ResetHeldState()
     {
-        var released = new ReleasedKinds(_heldKind, _toggleActive);
+        var released = new ReleasedKinds(_heldKind, _activeToggle);
         _heldKind = null;
-        _toggleActive = false;
+        _activeToggle = null;
         _suppressedActivationKey = 0;
         _keysDown.Clear();
         return released;
@@ -560,24 +597,44 @@ public sealed class GlobalHotkeyService : IDisposable
 
             _heldKind = _enabled ? MatchHeldHotkey() : null;
 
-            // The tap hotkey flips on a fresh key-down, never on auto-repeat,
+            // A tap hotkey flips on a fresh key-down, never on auto-repeat,
             // and stays out of the way while a hold dictation is in progress.
-            bool toggled = false;
+            bool toggledOn = false;
+            HotkeyKind? toggledOff = null;
+            bool swallowedToggleKey = false;
             if (_enabled && isDown && !isRepeat && wasHeld is null &&
-                _toggleHotkey is HoldHotkey toggle &&
-                toggle != _hotkey && toggle != _rawHotkey &&
-                key == toggle.VirtualKey && IsConfiguredHotkeyDown(toggle))
+                MatchToggleKeyDown(key) is HotkeyKind tapKind)
             {
-                // A keypress that satisfies both the tap binding and a hold
+                var binding = tapKind == HotkeyKind.ToggleRaw
+                    ? _toggleRawHotkey!.Value
+                    : _toggleHotkey!.Value;
+
+                // A keypress that satisfies both a tap binding and a hold
                 // binding goes to whichever names more modifiers, matching how
                 // the two hold bindings resolve their own overlaps.
                 bool holdClaims = _heldKind is HotkeyKind held &&
-                    ModifierCount(BindingFor(held).Modifiers) >= ModifierCount(toggle.Modifiers);
+                    ModifierCount(BindingFor(held).Modifiers) >= ModifierCount(binding.Modifiers);
                 if (!holdClaims)
                 {
-                    _heldKind = null;
-                    _toggleActive = !_toggleActive;
-                    toggled = true;
+                    if (_activeToggle is null)
+                    {
+                        _heldKind = null;
+                        _activeToggle = tapKind;
+                        toggledOn = true;
+                    }
+                    else if (_activeToggle == tapKind)
+                    {
+                        _heldKind = null;
+                        _activeToggle = null;
+                        toggledOff = tapKind;
+                    }
+                    else
+                    {
+                        // The other tap recording is running: this key does
+                        // nothing, but it must not leak into the target app.
+                        _heldKind = null;
+                        swallowedToggleKey = true;
+                    }
                 }
             }
 
@@ -586,18 +643,21 @@ public sealed class GlobalHotkeyService : IDisposable
             // second, or the app would see two presses and never a release.
             releasedKind = wasHeld != _heldKind ? wasHeld : null;
             pressedKind = wasHeld != _heldKind ? _heldKind : null;
-            if (toggled)
+            if (toggledOn)
             {
                 // wasHeld and _heldKind are both null here, so the tap event
                 // never competes with a hold event for the same keypress.
-                if (_toggleActive) pressedKind = HotkeyKind.Toggle;
-                else releasedKind = HotkeyKind.Toggle;
+                pressedKind = _activeToggle;
+            }
+            else if (toggledOff is not null)
+            {
+                releasedKind = toggledOff;
             }
 
             suppress = false;
             if (_enabled && SuppressHotkey)
             {
-                if (isDown && toggled)
+                if (isDown && (toggledOn || toggledOff is not null || swallowedToggleKey))
                 {
                     _suppressedActivationKey = key;
                     suppress = true;
@@ -646,6 +706,34 @@ public sealed class GlobalHotkeyService : IDisposable
         kind == HotkeyKind.Raw ? _rawHotkey.GetValueOrDefault() : _hotkey;
 
     /// <summary>
+    /// Decides which tap binding this key-down satisfies, if any. Mirrors
+    /// <see cref="MatchHeldHotkey"/>: a binding duplicating a hold hotkey is
+    /// ignored, and when both tap bindings match one keypress the one naming
+    /// more modifiers wins. Callers must hold <see cref="_gate"/>.
+    /// </summary>
+    private HotkeyKind? MatchToggleKeyDown(int key)
+    {
+        var tap = _toggleHotkey;
+        var tapRaw = _toggleRawHotkey;
+        bool tapMatch = tap is HoldHotkey a &&
+            a != _hotkey && a != _rawHotkey &&
+            key == a.VirtualKey && IsConfiguredHotkeyDown(a);
+        bool tapRawMatch = tapRaw is HoldHotkey b &&
+            b != _hotkey && b != _rawHotkey && b != tap &&
+            key == b.VirtualKey && IsConfiguredHotkeyDown(b);
+
+        if (tapMatch && tapRawMatch)
+        {
+            return ModifierCount(tapRaw!.Value.Modifiers) > ModifierCount(tap!.Value.Modifiers)
+                ? HotkeyKind.ToggleRaw
+                : HotkeyKind.Toggle;
+        }
+        if (tapMatch) return HotkeyKind.Toggle;
+        if (tapRawMatch) return HotkeyKind.ToggleRaw;
+        return null;
+    }
+
+    /// <summary>
     /// Decides which binding the currently pressed keys satisfy. The binding
     /// with more modifiers wins, so configuring "X" and "Ctrl + X" resolves to
     /// the chord rather than firing whichever happens to be checked first.
@@ -690,9 +778,9 @@ public sealed class GlobalHotkeyService : IDisposable
         {
             RaiseOnEventContext(Released, released.Held.Value);
         }
-        if (released.ToggleWasActive)
+        if (released.ActiveToggle is not null)
         {
-            RaiseOnEventContext(Released, HotkeyKind.Toggle);
+            RaiseOnEventContext(Released, released.ActiveToggle.Value);
         }
     }
 
