@@ -23,6 +23,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The hotkey hook cannot be driven by synthesised keystrokes, so the test
+         project drives its decision logic directly. -->
+    <InternalsVisibleTo Include="ShadowWhispr.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- UseWindowsForms adds these as implicit global usings, which then clash
          with the WPF types of the same name (Application, Brush, Button,
          ComboBox, KeyEventArgs...). This app is WPF; the only Windows Forms

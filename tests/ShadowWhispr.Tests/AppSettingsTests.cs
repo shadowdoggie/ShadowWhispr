@@ -7,23 +7,28 @@ namespace ShadowWhispr.Tests;
 public sealed class AppSettingsTests
 {
     [Fact]
-    public void TapHotkeysStartUnsetAndRoundTrip()
+    public void RawHotkeyStartsUnsetAndRoundTrips()
     {
-        Assert.Equal(string.Empty, new AppSettings().ToggleHotkey);
-        Assert.Equal(string.Empty, new AppSettings().ToggleRawHotkey);
+        Assert.Equal(string.Empty, new AppSettings().RawHotkey);
 
-        var settings = new AppSettings { ToggleHotkey = "F9", ToggleRawHotkey = "F10" };
+        var settings = new AppSettings { Hotkey = "F9", RawHotkey = "F10" };
         var reloaded = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings));
-        Assert.Equal("F9", reloaded!.ToggleHotkey);
-        Assert.Equal("F10", reloaded.ToggleRawHotkey);
+        Assert.Equal("F9", reloaded!.Hotkey);
+        Assert.Equal("F10", reloaded.RawHotkey);
     }
 
+    /// <summary>
+    /// The separate tap hotkeys were folded into the two main keys, so their
+    /// leftover entries in an older settings file must simply be ignored.
+    /// </summary>
     [Fact]
-    public void SettingsFileFromBeforeTapHotkeysLoadsAsUnset()
+    public void SettingsFileWithRetiredTapHotkeysStillLoads()
     {
-        var reloaded = JsonSerializer.Deserialize<AppSettings>("""{ "Hotkey": "Right Ctrl" }""");
-        Assert.Equal(string.Empty, reloaded!.ToggleHotkey);
-        Assert.Equal(string.Empty, reloaded.ToggleRawHotkey);
+        var reloaded = JsonSerializer.Deserialize<AppSettings>(
+            """{ "Hotkey": "Right Ctrl", "ToggleHotkey": "F9", "ToggleRawHotkey": "F10" }""");
+
+        Assert.Equal("Right Ctrl", reloaded!.Hotkey);
+        Assert.Equal(string.Empty, reloaded.RawHotkey);
     }
 
     [Fact]

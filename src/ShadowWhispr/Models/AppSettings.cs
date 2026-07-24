@@ -5,24 +5,10 @@ public sealed class AppSettings
     public string Hotkey { get; set; } = "Right Ctrl";
 
     /// <summary>
-    /// Optional second hold hotkey that dictates with AI cleanup skipped, so the
-    /// raw Parakeet transcript is typed as-is. Empty means "not configured".
+    /// Optional second hotkey that dictates with AI cleanup skipped, so the raw
+    /// Parakeet transcript is typed as-is. Empty means "not configured".
     /// </summary>
     public string RawHotkey { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Optional tap hotkey: press once to start recording, press again to stop,
-    /// with no key held in between. The result is treated exactly like the main
-    /// hotkey (AI cleanup applies when enabled). Empty means "not configured".
-    /// </summary>
-    public string ToggleHotkey { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Optional raw tap hotkey: taps like <see cref="ToggleHotkey"/>, but the
-    /// transcript skips AI cleanup like <see cref="RawHotkey"/>. Empty means
-    /// "not configured".
-    /// </summary>
-    public string ToggleRawHotkey { get; set; } = string.Empty;
 
     /// <summary>
     /// The name of the microphone to record from, exactly as Windows lists it.

@@ -66,7 +66,7 @@ If your brain works like mine, I hope it helps you get the words out too. 💜
 | 🖊️ **Types anywhere** | Text appears in whatever input is focused — chat, docs, email, code. No copy-pasting. |
 | ⚡ **Your hotkey, your rules** | Click the hotkey field and press any key or modifier combo. Extended keys **F13–F24** supported. |
 | ✌️ **Two hotkeys, two modes** | Set a second hotkey that types the **raw** transcript with AI cleanup skipped. Pick the treatment with your finger, not the settings screen. |
-| 👆 **Tap to start/stop** | Prefer not to hold a key for long dictations? Optional tap hotkeys start recording with one press and stop with the next — one with AI cleanup, one raw. |
+| 👆 **Hold or tap, same key** | Hold the key while you speak, or tap it quickly (under half a second) and recording stays on hands-free until you press the key again. |
 | 🎙️ **Pick your microphone** | Choose which mic ShadowWhispr records from, or follow the Windows default. The choice is remembered — even if the mic is unplugged for a while. |
 | 📬 **No waiting between messages** | Start dictating the next message while the previous one is still transcribing or being cleaned up. Each one is queued and pasted into the field it was dictated into. |
 | 🔔 **Lives in the tray** | Closing the window keeps ShadowWhispr listening from the system tray. Optionally start it with Windows — **off by default**. |
@@ -129,11 +129,11 @@ Codex models offer a faster speed tier. Tick **Fast mode** under the model picke
 replies come back about **1.5x faster**, but it uses up your Codex usage allowance quicker than
 normal speed. It's **off by default**, and the box only appears for Codex models that offer it.
 
-You can also set a **second hotkey** that always skips cleanup, even while AI cleanup is switched on — hold that one instead and the raw local transcript is typed straight out.
+You can also set a **second hotkey** that always skips cleanup, even while AI cleanup is switched on — use that one instead and the raw local transcript is typed straight out.
 
-For long dictations there are optional **tap hotkeys**: press once to start recording and again to stop, no holding needed. One tap hotkey applies AI cleanup like the main hotkey; the other types the raw transcript.
+Both hotkeys work two ways off the same key. Hold the key and it records while you hold it, exactly as before. Tap it quickly instead — under half a second — and recording keeps going hands-free, until you press the same key again to stop. Handy for long dictations.
 
-All four hotkeys are fully configurable, and the three optional ones can be cleared by pressing **Delete** while setting them.
+Both hotkeys are fully configurable, and the optional second one can be cleared by pressing **Delete** while setting it.
 
 ---
 

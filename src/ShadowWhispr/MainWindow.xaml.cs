@@ -66,6 +66,9 @@ public partial class MainWindow : Window
     /// <summary>Which hotkey started the recording, so its release applies the matching treatment.</summary>
     private HotkeyKind _activeHotkeyKind = HotkeyKind.Primary;
 
+    /// <summary>True while the current recording is running hands-free after a quick tap.</summary>
+    private bool _tapLatched;
+
     /// <summary>Set only by a real quit request; a plain window close hides to the tray instead.</summary>
     private bool _exitRequested;
     private bool _dictationPaused;
@@ -79,6 +82,7 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         _hotkey.Pressed += OnHotkeyPressed;
         _hotkey.Released += OnHotkeyReleased;
+        _hotkey.Latched += OnHotkeyLatched;
         _audio.RecordingFailed += (_, ex) => AppLog.Write("Audio recording failed", ex);
         _tones.PlaybackFailed += (_, ex) => AppLog.Write("Cue tone playback failed", ex);
         _speechSetup.Progress += OnSetupProgress;
@@ -122,8 +126,6 @@ public partial class MainWindow : Window
         {
             _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
             _hotkey.RawHotkey = ParseOptionalHotkey(_settings.RawHotkey);
-            _hotkey.ToggleHotkey = ParseOptionalHotkey(_settings.ToggleHotkey);
-            _hotkey.ToggleRawHotkey = ParseOptionalHotkey(_settings.ToggleRawHotkey);
             _hotkey.Start();
         }
         catch (Exception ex)
@@ -529,24 +531,32 @@ public partial class MainWindow : Window
         try
         {
             _activeHotkeyKind = e.Kind;
+            _tapLatched = false;
             _insertionTarget = _inserter.CaptureTarget();
             _tones.PlayPressed();
             await _audio.StartAsync(_lifetime?.Token ?? default);
-            if (e.Kind is HotkeyKind.Toggle or HotkeyKind.ToggleRaw)
-                AppLog.Write($"Tap dictation started ({e.Kind})");
-            RunStatus.Text = e.Kind switch
-            {
-                HotkeyKind.Raw => "Listening… (raw)",
-                HotkeyKind.Toggle => "Listening… (tap again to stop)",
-                HotkeyKind.ToggleRaw => "Listening… (raw — tap again to stop)",
-                _ => "Listening…"
-            };
+            RunStatus.Text = e.Kind == HotkeyKind.Raw ? "Listening… (raw)" : "Listening…";
             _tray.SetState(TrayState.Listening);
         }
         catch (Exception ex)
         {
             SetError(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// The key was let go too quickly to be a hold, so the recording keeps
+    /// running until the next press. Only the status text changes; the recording
+    /// itself started when the key went down.
+    /// </summary>
+    private void OnHotkeyLatched(object? sender, HotkeyEventArgs e)
+    {
+        if (!_audio.IsRecording || e.Kind != _activeHotkeyKind) return;
+        _tapLatched = true;
+        AppLog.Write($"Tap dictation latched on ({e.Kind})");
+        RunStatus.Text = e.Kind == HotkeyKind.Raw
+            ? "Listening… (raw — press again to stop)"
+            : "Listening… (press again to stop)";
     }
 
     private async void OnHotkeyReleased(object? sender, HotkeyEventArgs e)
@@ -557,8 +567,11 @@ public partial class MainWindow : Window
         if (e.Kind != _activeHotkeyKind) return;
         try
         {
-            if (e.Kind is HotkeyKind.Toggle or HotkeyKind.ToggleRaw)
+            if (_tapLatched)
+            {
+                _tapLatched = false;
                 AppLog.Write($"Tap dictation stopped ({e.Kind})");
+            }
             var recording = await _audio.StopAsync(_lifetime?.Token ?? default);
             _tones.PlayReleased();
             if (string.IsNullOrWhiteSpace(recording))
@@ -628,9 +641,9 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // The raw hotkeys deliberately skip cleanup, so what Parakeet heard
+            // The raw hotkey deliberately skips cleanup, so what Parakeet heard
             // is what gets typed.
-            if (_settings.AiEnabled && job.Kind is not (HotkeyKind.Raw or HotkeyKind.ToggleRaw))
+            if (_settings.AiEnabled && job.Kind != HotkeyKind.Raw)
             {
                 SetQueueStatus($"Cleaning with {_settings.Provider}…");
                 text = await _ai.ProcessAsync(
@@ -689,12 +702,6 @@ public partial class MainWindow : Window
         RawHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.RawHotkey)
             ? OptionalHotkeyUnsetLabel
             : _settings.RawHotkey;
-        ToggleHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.ToggleHotkey)
-            ? OptionalHotkeyUnsetLabel
-            : _settings.ToggleHotkey;
-        ToggleRawHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.ToggleRawHotkey)
-            ? OptionalHotkeyUnsetLabel
-            : _settings.ToggleRawHotkey;
         RefreshMicrophoneList(_settings.Microphone);
         _audio.PreferredDeviceName = _settings.Microphone;
         KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
@@ -1046,15 +1053,9 @@ public partial class MainWindow : Window
         if (button is null) return;
 
         var isRaw = ReferenceEquals(button, RawHotkeyCaptureButton);
-        var isToggle = ReferenceEquals(button, ToggleHotkeyCaptureButton);
-        var isToggleRaw = ReferenceEquals(button, ToggleRawHotkeyCaptureButton);
-        var isOptional = isRaw || isToggle || isToggleRaw;
-        var fieldName = isRaw ? "raw" : isToggle ? "tap" : isToggleRaw ? "raw tap" : "main";
-        string OwnStoredValue() =>
-            isRaw ? _settings.RawHotkey
-            : isToggle ? _settings.ToggleHotkey
-            : isToggleRaw ? _settings.ToggleRawHotkey
-            : _settings.Hotkey;
+        var isOptional = isRaw;
+        var fieldName = isRaw ? "raw" : "main";
+        string OwnStoredValue() => isRaw ? _settings.RawHotkey : _settings.Hotkey;
         var text = clear ? string.Empty : hotkey?.ToString() ?? _hotkeyBeforeCapture;
 
         // Cancelling on an unassigned optional field restores its placeholder,
@@ -1065,7 +1066,7 @@ public partial class MainWindow : Window
         // any other field is refused instead of silently shadowing it.
         if (text.Length > 0)
         {
-            string[] all = [_settings.Hotkey, _settings.RawHotkey, _settings.ToggleHotkey, _settings.ToggleRawHotkey];
+            string[] all = [_settings.Hotkey, _settings.RawHotkey];
             var others = all.Where(other => !string.Equals(other, OwnStoredValue(), StringComparison.Ordinal));
             if (others.Any(other => string.Equals(text, other, StringComparison.OrdinalIgnoreCase)))
             {
@@ -1091,16 +1092,6 @@ public partial class MainWindow : Window
             _settings.RawHotkey = text;
             _hotkey.RawHotkey = ParseOptionalHotkey(text);
         }
-        else if (isToggle)
-        {
-            _settings.ToggleHotkey = text;
-            _hotkey.ToggleHotkey = ParseOptionalHotkey(text);
-        }
-        else if (isToggleRaw)
-        {
-            _settings.ToggleRawHotkey = text;
-            _hotkey.ToggleRawHotkey = ParseOptionalHotkey(text);
-        }
         else
         {
             _settings.Hotkey = text;
@@ -1114,8 +1105,8 @@ public partial class MainWindow : Window
     }
 
     private void ResetHotkeyHint() => HotkeyHint.Text =
-        "Hold keys: hold while you speak. Tap keys: press once to start, press again to stop. " +
-        "Click a field, then press the key you want. Delete clears an optional hotkey; Escape cancels.";
+        "Hold a key while you speak, or tap it quickly to keep recording hands-free until you press it again. " +
+        "Click a field, then press the key you want. Delete clears the optional hotkey; Escape cancels.";
 
     private static Key GetActualKey(KeyEventArgs e) => e.Key switch
     {
@@ -1139,10 +1130,6 @@ public partial class MainWindow : Window
             _settings.Hotkey = HotkeyCaptureButton.Content?.ToString() ?? "Right Ctrl";
             var raw = RawHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
             _settings.RawHotkey = raw == OptionalHotkeyUnsetLabel ? string.Empty : raw;
-            var toggle = ToggleHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
-            _settings.ToggleHotkey = toggle == OptionalHotkeyUnsetLabel ? string.Empty : toggle;
-            var toggleRaw = ToggleRawHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
-            _settings.ToggleRawHotkey = toggleRaw == OptionalHotkeyUnsetLabel ? string.Empty : toggleRaw;
         }
         // The Windows-default entry is stored as empty; a disconnected saved mic
         // keeps its real name in the list, so its name (not "default") persists.
@@ -1315,10 +1302,8 @@ public partial class MainWindow : Window
         else if (_dictationPaused) status = "Paused";
         else
         {
-            var parts = new List<string> { $"Hold {_settings.Hotkey}" };
+            var parts = new List<string> { $"Hold or tap {_settings.Hotkey}" };
             if (!string.IsNullOrWhiteSpace(_settings.RawHotkey)) parts.Add($"raw {_settings.RawHotkey}");
-            if (!string.IsNullOrWhiteSpace(_settings.ToggleHotkey)) parts.Add($"tap {_settings.ToggleHotkey}");
-            if (!string.IsNullOrWhiteSpace(_settings.ToggleRawHotkey)) parts.Add($"raw tap {_settings.ToggleRawHotkey}");
             status = string.Join(" · ", parts);
         }
 
