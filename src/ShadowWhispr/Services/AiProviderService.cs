@@ -27,6 +27,7 @@ public sealed partial class AiProviderService
 
     private static readonly IReadOnlyList<AiModelOption> ClaudeModels =
     [
+        new(Claude, "claude-opus-5", "Claude Opus 5", ["low", "medium", "high", "xhigh", "max"], "high"),
         new(Claude, "claude-fable-5", "Claude Fable 5", ["low", "medium", "high", "xhigh", "max"], "high"),
         new(Claude, "claude-opus-4-8", "Claude Opus 4.8", ["low", "medium", "high", "xhigh", "max"], "high"),
         new(Claude, "claude-sonnet-5", "Claude Sonnet 5", ["low", "medium", "high", "xhigh", "max"], "high"),
