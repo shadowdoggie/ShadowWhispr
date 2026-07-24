@@ -69,6 +69,12 @@ public partial class MainWindow : Window
     /// <summary>True while the current recording is running hands-free after a quick tap.</summary>
     private bool _tapLatched;
 
+    /// <summary>True when the selected provider's CLI says it is already signed in.</summary>
+    private bool _providerLoggedIn;
+
+    /// <summary>Counts login checks, so a slow answer for a provider you left cannot land.</summary>
+    private int _loginStatusGeneration;
+
     /// <summary>Set only by a real quit request; a plain window close hides to the tray instead.</summary>
     private bool _exitRequested;
     private bool _dictationPaused;
@@ -135,6 +141,7 @@ public partial class MainWindow : Window
         }
 
         await RefreshModelsAsync(_settings.ModelId);
+        _ = RefreshLoginStatusAsync(_settings.Provider);
         _startupComplete = true;
         _ = WarmSpeechEngineAsync(_lifetime.Token);
 
@@ -786,7 +793,7 @@ public partial class MainWindow : Window
                 $"(remembered effort for {_activeProvider}: {_settings.GetReasoningFor(_activeProvider) ?? "none yet"})");
         }
 
-        SetAuthHint(_settings.Provider);
+        _ = RefreshLoginStatusAsync(_settings.Provider);
         QueueAutoSave();
 
         // Restore the model this provider was last using, for the same reason
@@ -804,6 +811,7 @@ public partial class MainWindow : Window
             await _ai.LoginAsync(provider, _lifetime?.Token ?? default);
             AuthStatus.Text = $"{provider} login finished";
             await RefreshModelsAsync(null);
+            await RefreshLoginStatusAsync(provider);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -840,6 +848,8 @@ public partial class MainWindow : Window
             ModelCombo.ItemsSource = Array.Empty<AiModelOption>();
             ReasoningCombo.ItemsSource = Array.Empty<string>();
             UpdateFastModeChoice(null);
+            _providerLoggedIn = false;
+            await RefreshLoginStatusAsync(provider);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -855,7 +865,9 @@ public partial class MainWindow : Window
 
     private void SetAuthButtonsEnabled(bool enabled)
     {
-        LoginButton.IsEnabled = enabled;
+        // A provider that is already signed in keeps its Login button greyed out
+        // even when the buttons are re-enabled after a login or logout run.
+        LoginButton.IsEnabled = enabled && !_providerLoggedIn;
         LogoutButton.IsEnabled = enabled;
         ProviderCombo.IsEnabled = enabled;
     }
@@ -867,6 +879,55 @@ public partial class MainWindow : Window
             AiProviderService.Gemini => "Login uses Google Antigravity",
             _ => $"Login uses your {provider} subscription"
         };
+    }
+
+    /// <summary>
+    /// Asks the selected provider whether it is already signed in and greys out
+    /// its Login button if so. Runs in the background because it starts the
+    /// provider's CLI, which takes a moment. A newer check always wins, so
+    /// switching provider mid-check cannot leave the wrong answer on screen.
+    /// </summary>
+    private async Task RefreshLoginStatusAsync(string provider)
+    {
+        var generation = ++_loginStatusGeneration;
+
+        // Starting the provider's CLI takes a moment. The button stays out of
+        // action for that moment, so a fast click cannot start a second login
+        // for a provider that turns out to be signed in already.
+        _providerLoggedIn = false;
+        LoginButton.IsEnabled = false;
+        AuthStatus.Text = "Checking login…";
+
+        ProviderLoginStatus status;
+        try
+        {
+            status = await _ai.GetLoginStatusAsync(provider, _lifetime?.Token ?? default);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            // A failed check must never leave the button stuck: fall back to
+            // "cannot tell", which keeps signing in possible.
+            AppLog.Write($"Checking the {provider} login failed", ex);
+            status = ProviderLoginStatus.Unknown;
+        }
+
+        if (generation != _loginStatusGeneration) return;
+        if (!string.Equals(GetComboText(ProviderCombo), provider, StringComparison.OrdinalIgnoreCase)) return;
+
+        _providerLoggedIn = status == ProviderLoginStatus.LoggedIn;
+        if (_providerLoggedIn)
+        {
+            LoginButton.IsEnabled = false;
+            AuthStatus.Text = "Already logged in";
+        }
+        else if (ProviderCombo.IsEnabled)
+        {
+            // Not signed in, or the CLI could not be asked: leave the button
+            // usable so a sign-in is always possible.
+            LoginButton.IsEnabled = true;
+            SetAuthHint(provider);
+        }
     }
 
     private async Task RefreshModelsAsync(string? preferredId)

@@ -111,6 +111,8 @@ Dictation is rarely perfect on the first pass. ShadowWhispr can optionally send 
 
 Login and Logout run through each provider's official CLI tool. ShadowWhispr never sees or stores your credentials — they live inside the provider's own tool.
 
+For Claude and Codex, ShadowWhispr asks the provider whether you are already signed in. If you are, the status reads **Already logged in** and the Login button is greyed out, so you cannot start a sign-in you do not need. Antigravity has no way to be asked without opening its window, so its Login button always stays available.
+
 ### ⭐ Recommended models for the best experience
 
 For the cleanest results, these are the models I'd reach for:

@@ -8,6 +8,15 @@ using ShadowWhispr.Models;
 
 namespace ShadowWhispr.Services;
 
+/// <summary>Whether a provider CLI is signed in, as far as it can be asked.</summary>
+public enum ProviderLoginStatus
+{
+    /// <summary>The CLI cannot be asked, is missing, or gave an answer we do not understand.</summary>
+    Unknown,
+    LoggedIn,
+    LoggedOut
+}
+
 public sealed partial class AiProviderService
 {
     public const string Claude = "Claude";
@@ -62,6 +71,97 @@ public sealed partial class AiProviderService
         Gemini => "agy (opens OAuth onboarding when signed out)",
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
+
+    /// <summary>
+    /// Asks a provider's CLI whether it is already signed in, without opening
+    /// anything the user has to click. Claude and Codex both have a status
+    /// command; Antigravity has none, so Gemini always answers "cannot tell".
+    /// </summary>
+    public async Task<ProviderLoginStatus> GetLoginStatusAsync(
+        string provider,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedProvider = NormalizeProvider(provider);
+        if (normalizedProvider == Gemini)
+        {
+            // agy has no status command: the only way to find out is to open its
+            // window, which is exactly what checking is meant to avoid.
+            return ProviderLoginStatus.Unknown;
+        }
+
+        if (!IsCliAvailable(normalizedProvider))
+        {
+            return ProviderLoginStatus.Unknown;
+        }
+
+        EnsureIsolatedDirectories();
+        IReadOnlyCollection<string> arguments = normalizedProvider == Claude
+            ? ["auth", "status", "--json"]
+            : ["login", "status"];
+
+        ProcessResult result;
+        try
+        {
+            result = await RunAsync(
+                GetCommand(normalizedProvider),
+                arguments,
+                standardInput: null,
+                workingDirectory: _isolatedWorkDirectory,
+                environment: null,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            AppLog.Write($"Could not read {normalizedProvider} login status: {exception.Message}");
+            return ProviderLoginStatus.Unknown;
+        }
+
+        var status = normalizedProvider == Claude
+            ? ReadClaudeLoginStatus(result)
+            : ReadCodexLoginStatus(result);
+        AppLog.Write($"{normalizedProvider} login status: {status}");
+        return status;
+    }
+
+    /// <summary>
+    /// Claude prints its status as JSON with a <c>loggedIn</c> flag.
+    /// </summary>
+    private static ProviderLoginStatus ReadClaudeLoginStatus(ProcessResult result)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(result.StandardOutput);
+            if (document.RootElement.TryGetProperty("loggedIn", out var loggedIn) &&
+                loggedIn.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                return loggedIn.GetBoolean() ? ProviderLoginStatus.LoggedIn : ProviderLoginStatus.LoggedOut;
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall through: an unreadable answer is treated as "cannot tell"
+            // rather than guessing the user out of a working login.
+        }
+
+        return ProviderLoginStatus.Unknown;
+    }
+
+    /// <summary>
+    /// Codex answers in plain words, for example "Logged in using ChatGPT".
+    /// </summary>
+    private static ProviderLoginStatus ReadCodexLoginStatus(ProcessResult result)
+    {
+        var output = $"{result.StandardOutput}\n{result.StandardError}";
+        if (output.Contains("not logged in", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProviderLoginStatus.LoggedOut;
+        }
+        if (result.ExitCode == 0 && output.Contains("logged in", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProviderLoginStatus.LoggedIn;
+        }
+        return result.ExitCode == 0 ? ProviderLoginStatus.Unknown : ProviderLoginStatus.LoggedOut;
+    }
 
     /// <summary>
     /// Opens the provider's official interactive subscription sign-in flow in a visible console.
