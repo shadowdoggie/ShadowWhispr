@@ -22,6 +22,13 @@ public sealed class TonePlayer : IDisposable
     /// <summary>Silence appended to every cue so the tail is never clipped by the device's last buffer.</summary>
     private const double TailSilenceSeconds = 0.15;
 
+    /// <summary>
+    /// Silence in front of every cue. It gives the device a moment of quiet to
+    /// settle into before the note starts, instead of the note landing in the
+    /// same instant the speakers wake up.
+    /// </summary>
+    private const double LeadSilenceSeconds = 0.05;
+
     /// <summary>How long the device stays open after the last cue.</summary>
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(5);
 
@@ -56,11 +63,10 @@ public sealed class TonePlayer : IDisposable
             {
                 if (_disposed) return;
                 EnsureDevice();
-                // A cue that arrives while the previous one is still sounding
-                // replaces it rather than queueing behind it, so the pair of
-                // cues never drifts away from the key presses that caused them.
-                _buffer!.ClearBuffer();
-                _buffer.AddSamples(samples, 0, samples.Length);
+                // Appended rather than replacing whatever is still sounding:
+                // cutting a note off mid-waveform is heard as a click. Each cue
+                // is short, so a fast press pair simply plays both in order.
+                _buffer!.AddSamples(samples, 0, samples.Length);
                 _idleTimer.Change(IdleClose, Timeout.InfiniteTimeSpan);
             }
         }
@@ -86,7 +92,9 @@ public sealed class TonePlayer : IDisposable
             BufferDuration = TimeSpan.FromSeconds(1),
         };
 
-        var output = new WaveOutEvent { DesiredLatency = 100 };
+        // Three buffers of a comfortable size: too little headroom here and the
+        // device runs dry between refills, which is heard as crackle.
+        var output = new WaveOutEvent { DesiredLatency = 180, NumberOfBuffers = 3 };
         output.PlaybackStopped += OnPlaybackStopped;
         output.Init(_buffer);
         output.Play();
@@ -135,33 +143,68 @@ public sealed class TonePlayer : IDisposable
     }
 
     private static byte[] CreateRisingCue() => CreateCue(
-        durationSeconds: 0.13,
-        frequencyAt: progress => progress < 0.48 ? 620 : 880,
+        durationSeconds: 0.16,
+        fromFrequency: 620,
+        toFrequency: 880,
         volume: 0.18);
 
     private static byte[] CreateFallingCue() => CreateCue(
-        durationSeconds: 0.11,
-        frequencyAt: progress => progress < 0.48 ? 700 : 420,
+        durationSeconds: 0.14,
+        fromFrequency: 700,
+        toFrequency: 420,
         volume: 0.16);
 
-    private static byte[] CreateCue(double durationSeconds, Func<double, double> frequencyAt, double volume)
+    /// <summary>
+    /// Builds a two-note cue that glides between the notes rather than jumping,
+    /// and fades in and out along a raised cosine.
+    ///
+    /// The earlier version switched frequency in a single sample and rode a
+    /// straight-line fade. Both leave sharp corners in the waveform, and sharp
+    /// corners are heard as clicks or crackle over the top of the note.
+    /// </summary>
+    private static byte[] CreateCue(double durationSeconds, double fromFrequency, double toFrequency, double volume)
     {
         int sampleCount = (int)(SampleRate * durationSeconds);
+        int leadCount = (int)(SampleRate * LeadSilenceSeconds);
         int tailCount = (int)(SampleRate * TailSilenceSeconds);
-        var result = new byte[(sampleCount + tailCount) * sizeof(short)];
+        var result = new byte[(leadCount + sampleCount + tailCount) * sizeof(short)];
+
+        // Fade lengths as a share of the cue, kept long enough that the fade is
+        // gradual at this sample rate but short enough to still sound snappy.
+        const double fadeIn = 0.18;
+        const double fadeOut = 0.34;
         double phase = 0;
 
         for (int i = 0; i < sampleCount; i++)
         {
             double progress = (double)i / sampleCount;
-            double envelope = Math.Min(1, progress / 0.06) * Math.Min(1, (1 - progress) / 0.16);
-            phase += 2 * Math.PI * frequencyAt(progress) / SampleRate;
+
+            // The glide runs across the middle of the cue, so each note is still
+            // clearly its own pitch with a smooth slide in between.
+            double glide = Smoothstep((progress - 0.34) / 0.32);
+            double frequency = fromFrequency + ((toFrequency - fromFrequency) * glide);
+
+            double envelope =
+                RaisedCosine(Math.Min(1, progress / fadeIn)) *
+                RaisedCosine(Math.Min(1, (1 - progress) / fadeOut));
+
+            phase += 2 * Math.PI * frequency / SampleRate;
             short sample = (short)(Math.Sin(phase) * short.MaxValue * volume * envelope);
-            result[i * 2] = unchecked((byte)sample);
-            result[i * 2 + 1] = unchecked((byte)(sample >> 8));
+            int at = (leadCount + i) * 2;
+            result[at] = unchecked((byte)sample);
+            result[at + 1] = unchecked((byte)(sample >> 8));
         }
 
         return result;
+    }
+
+    /// <summary>A 0..1 fade with flat ends, so the waveform has no corner where the fade starts or stops.</summary>
+    private static double RaisedCosine(double value) => 0.5 - (0.5 * Math.Cos(Math.PI * Math.Clamp(value, 0, 1)));
+
+    private static double Smoothstep(double value)
+    {
+        double clamped = Math.Clamp(value, 0, 1);
+        return clamped * clamped * (3 - (2 * clamped));
     }
 
     public void Dispose()
