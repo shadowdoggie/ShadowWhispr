@@ -48,9 +48,9 @@ public sealed class TrayIconService : IDisposable
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Open ShadowWhispr", null, (_, _) => OpenRequested?.Invoke(this, EventArgs.Empty));
         menu.Items.Add(_pauseItem);
-        menu.Items.Add("Quit ShadowWhispr", null, (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty));
-        menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Check for updates", null, (_, _) => CheckUpdatesRequested?.Invoke(this, EventArgs.Empty));
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("Quit ShadowWhispr", null, (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty));
 
         _baseIcon = LoadIcon(out _ownsBaseIcon);
 
