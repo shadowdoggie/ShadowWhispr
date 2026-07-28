@@ -144,4 +144,10 @@ public sealed class AppSettings
     /// thing that writes the Windows "Run" registry entry.
     /// </summary>
     public bool StartWithWindows { get; set; }
+
+    /// <summary>
+    /// Silences the short start and stop cues that play around a dictation.
+    /// Off by default, so the sounds keep working unless they are turned off.
+    /// </summary>
+    public bool SoundCuesMuted { get; set; }
 }

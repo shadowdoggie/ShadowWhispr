@@ -432,6 +432,12 @@
                                        FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <CheckBox x:Name="MuteSoundCuesCheck"
+                                      Content="Turn off the start and stop sounds"
+                                      FontSize="13" VerticalAlignment="Center"
+                                      Checked="SoundCuesToggled" Unchecked="SoundCuesToggled" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                             <CheckBox x:Name="AutoUpdateCheck" Content="Automatically check for updates"
                                       FontSize="13" VerticalAlignment="Center"
                                       Checked="AutoUpdateToggled" Unchecked="AutoUpdateToggled" />

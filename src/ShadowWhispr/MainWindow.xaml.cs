@@ -180,6 +180,13 @@ public partial class MainWindow : Window
         AppLog.Write($"Keep running in tray set to {_settings.KeepRunningInTray}");
     }
 
+    private void SoundCuesToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        AppLog.Write($"Dictation sound cues muted set to {_settings.SoundCuesMuted}");
+    }
+
     /// <summary>
     /// Writes (or removes) the Windows startup entry. The checkbox is snapped
     /// back to the real registry state if Windows refuses the change, so it can
@@ -712,6 +719,8 @@ public partial class MainWindow : Window
         RefreshMicrophoneList(_settings.Microphone);
         _audio.PreferredDeviceName = _settings.Microphone;
         KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
+        MuteSoundCuesCheck.IsChecked = _settings.SoundCuesMuted;
+        _tones.Muted = _settings.SoundCuesMuted;
         // The registry is the truth for autostart: the saved setting could be
         // stale if the entry was removed outside ShadowWhispr.
         var autostartActive = StartupService.IsEnabled();
@@ -1203,6 +1212,8 @@ public partial class MainWindow : Window
         }
         _settings.KeepRunningInTray = KeepRunningInTrayCheck.IsChecked == true;
         _settings.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
+        _settings.SoundCuesMuted = MuteSoundCuesCheck.IsChecked == true;
+        _tones.Muted = _settings.SoundCuesMuted;
         _settings.AiEnabled = AiEnabledCheck.IsChecked == true;
         _settings.Provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
         if (ModelCombo.SelectedItem is AiModelOption model)
