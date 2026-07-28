@@ -546,8 +546,8 @@ public partial class MainWindow : Window
         {
             _activeHotkeyKind = e.Kind;
             _tapLatched = false;
-            _insertionTarget = _inserter.CaptureTarget();
             _tones.PlayPressed();
+            _insertionTarget = _inserter.CaptureTarget();
             await _audio.StartAsync(_lifetime?.Token ?? default);
             RunStatus.Text = e.Kind == HotkeyKind.Raw ? "Listening… (raw)" : "Listening…";
             _tray.SetState(TrayState.Listening);
@@ -586,8 +586,11 @@ public partial class MainWindow : Window
                 _tapLatched = false;
                 AppLog.Write($"Tap dictation stopped ({e.Kind})");
             }
-            var recording = await _audio.StopAsync(_lifetime?.Token ?? default);
+            // Sounded before the recorder is closed, not after: stopping flushes
+            // the recording to disk, and waiting for that put an audible lag
+            // between letting the key go and hearing the cue.
             _tones.PlayReleased();
+            var recording = await _audio.StopAsync(_lifetime?.Token ?? default);
             if (string.IsNullOrWhiteSpace(recording))
             {
                 SetQueueStatus("No audio recorded");

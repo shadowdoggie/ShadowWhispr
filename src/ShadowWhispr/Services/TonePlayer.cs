@@ -23,14 +23,18 @@ public sealed class TonePlayer : IDisposable
     private const double TailSilenceSeconds = 0.15;
 
     /// <summary>
-    /// Silence in front of every cue. It gives the device a moment of quiet to
-    /// settle into before the note starts, instead of the note landing in the
-    /// same instant the speakers wake up.
+    /// Silence in front of every cue. Kept very short: it only has to cover the
+    /// device settling, and every millisecond here is a millisecond between the
+    /// key press and the cue being heard.
     /// </summary>
-    private const double LeadSilenceSeconds = 0.05;
+    private const double LeadSilenceSeconds = 0.005;
 
-    /// <summary>How long the device stays open after the last cue.</summary>
-    private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(5);
+    /// <summary>
+    /// How long the device stays open after the last cue. Long enough that a
+    /// whole dictation session reuses one open device — opening it is the
+    /// slowest part, and a reopen is heard as a late first cue.
+    /// </summary>
+    private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(60);
 
     private readonly object _gate = new();
     private readonly Timer _idleTimer;
@@ -92,9 +96,11 @@ public sealed class TonePlayer : IDisposable
             BufferDuration = TimeSpan.FromSeconds(1),
         };
 
-        // Three buffers of a comfortable size: too little headroom here and the
-        // device runs dry between refills, which is heard as crackle.
-        var output = new WaveOutEvent { DesiredLatency = 180, NumberOfBuffers = 3 };
+        // A cue added to the buffer is only picked up at the next refill, so the
+        // buffer size is also the delay before it is heard. Four small buffers
+        // keep that delay short while still leaving enough refills in flight
+        // that the device cannot run dry (which would crackle).
+        var output = new WaveOutEvent { DesiredLatency = 80, NumberOfBuffers = 4 };
         output.PlaybackStopped += OnPlaybackStopped;
         output.Init(_buffer);
         output.Play();
