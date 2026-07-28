@@ -142,70 +142,58 @@ public sealed class TonePlayer : IDisposable
         _buffer = null;
     }
 
-    private static byte[] CreateRisingCue() => CreateCue(
-        durationSeconds: 0.16,
-        fromFrequency: 620,
-        toFrequency: 880,
-        volume: 0.18);
+    /// <summary>Length of each of the two notes in a cue.</summary>
+    private const double NoteSeconds = 0.075;
 
-    private static byte[] CreateFallingCue() => CreateCue(
-        durationSeconds: 0.14,
-        fromFrequency: 700,
-        toFrequency: 420,
-        volume: 0.16);
+    private static byte[] CreateRisingCue() => CreateCue(firstFrequency: 620, secondFrequency: 880, volume: 0.18);
+
+    private static byte[] CreateFallingCue() => CreateCue(firstFrequency: 700, secondFrequency: 420, volume: 0.16);
 
     /// <summary>
-    /// Builds a two-note cue that glides between the notes rather than jumping,
-    /// and fades in and out along a raised cosine.
+    /// Builds a two-note cue: two separate steady notes, one after the other.
     ///
-    /// The earlier version switched frequency in a single sample and rode a
-    /// straight-line fade. Both leave sharp corners in the waveform, and sharp
-    /// corners are heard as clicks or crackle over the top of the note.
+    /// Each note fades in and out on its own along a raised cosine, so the
+    /// waveform reaches silence before the pitch changes. That is what keeps the
+    /// cue click-free without sliding between the pitches — a slide turns the
+    /// pair of beeps into a swooping sound nobody asked for.
     /// </summary>
-    private static byte[] CreateCue(double durationSeconds, double fromFrequency, double toFrequency, double volume)
+    private static byte[] CreateCue(double firstFrequency, double secondFrequency, double volume)
     {
-        int sampleCount = (int)(SampleRate * durationSeconds);
+        int noteCount = (int)(SampleRate * NoteSeconds);
         int leadCount = (int)(SampleRate * LeadSilenceSeconds);
         int tailCount = (int)(SampleRate * TailSilenceSeconds);
-        var result = new byte[(leadCount + sampleCount + tailCount) * sizeof(short)];
+        var result = new byte[(leadCount + (noteCount * 2) + tailCount) * sizeof(short)];
 
-        // Fade lengths as a share of the cue, kept long enough that the fade is
-        // gradual at this sample rate but short enough to still sound snappy.
-        const double fadeIn = 0.18;
-        const double fadeOut = 0.34;
+        WriteNote(result, leadCount, noteCount, firstFrequency, volume);
+        WriteNote(result, leadCount + noteCount, noteCount, secondFrequency, volume);
+        return result;
+    }
+
+    private static void WriteNote(byte[] target, int startSample, int sampleCount, double frequency, double volume)
+    {
+        // Fade lengths as a share of the note: long enough for the ramp to be
+        // gradual, short enough that the note still has a solid steady middle.
+        const double fadeIn = 0.22;
+        const double fadeOut = 0.4;
         double phase = 0;
 
         for (int i = 0; i < sampleCount; i++)
         {
             double progress = (double)i / sampleCount;
-
-            // The glide runs across the middle of the cue, so each note is still
-            // clearly its own pitch with a smooth slide in between.
-            double glide = Smoothstep((progress - 0.34) / 0.32);
-            double frequency = fromFrequency + ((toFrequency - fromFrequency) * glide);
-
             double envelope =
-                RaisedCosine(Math.Min(1, progress / fadeIn)) *
-                RaisedCosine(Math.Min(1, (1 - progress) / fadeOut));
+                RaisedCosine(progress / fadeIn) *
+                RaisedCosine((1 - progress) / fadeOut);
 
             phase += 2 * Math.PI * frequency / SampleRate;
             short sample = (short)(Math.Sin(phase) * short.MaxValue * volume * envelope);
-            int at = (leadCount + i) * 2;
-            result[at] = unchecked((byte)sample);
-            result[at + 1] = unchecked((byte)(sample >> 8));
+            int at = (startSample + i) * 2;
+            target[at] = unchecked((byte)sample);
+            target[at + 1] = unchecked((byte)(sample >> 8));
         }
-
-        return result;
     }
 
     /// <summary>A 0..1 fade with flat ends, so the waveform has no corner where the fade starts or stops.</summary>
     private static double RaisedCosine(double value) => 0.5 - (0.5 * Math.Cos(Math.PI * Math.Clamp(value, 0, 1)));
-
-    private static double Smoothstep(double value)
-    {
-        double clamped = Math.Clamp(value, 0, 1);
-        return clamped * clamped * (3 - (2 * clamped));
-    }
 
     public void Dispose()
     {
