@@ -197,7 +197,13 @@ public enum HotkeyKind
     Primary,
 
     /// <summary>The optional second hotkey: transcribe and type the raw text.</summary>
-    Raw
+    Raw,
+
+    /// <summary>
+    /// The optional agent hotkey: hand the transcript to a headless Claude Code
+    /// session as an instruction instead of typing it anywhere.
+    /// </summary>
+    Agent
 }
 
 public sealed class HotkeyEventArgs(HotkeyKind kind) : EventArgs
@@ -255,6 +261,7 @@ public sealed class GlobalHotkeyService : IDisposable
     private bool _disposed;
     private HoldHotkey _hotkey;
     private HoldHotkey? _rawHotkey;
+    private HoldHotkey? _agentHotkey;
     private bool _enabled = true;
 
     public GlobalHotkeyService(HoldHotkey? hotkey = null)
@@ -334,6 +341,38 @@ public sealed class GlobalHotkeyService : IDisposable
                 }
 
                 _rawHotkey = value;
+                released = ResetHeldState();
+            }
+
+            RaiseReleased(released);
+        }
+    }
+
+    /// <summary>
+    /// The optional third push-to-talk key that sends the transcript to a
+    /// headless Claude Code session as an instruction. Null disables it. As with
+    /// <see cref="RawHotkey"/>, a binding that duplicates another one is ignored.
+    /// </summary>
+    public HoldHotkey? AgentHotkey
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _agentHotkey;
+            }
+        }
+        set
+        {
+            ReleasedKinds released;
+            lock (_gate)
+            {
+                if (_agentHotkey == value)
+                {
+                    return;
+                }
+
+                _agentHotkey = value;
                 released = ResetHeldState();
             }
 
@@ -649,8 +688,12 @@ public sealed class GlobalHotkeyService : IDisposable
         return suppress;
     }
 
-    private int ActivationKeyFor(HotkeyKind kind) =>
-        kind == HotkeyKind.Raw ? _rawHotkey?.VirtualKey ?? 0 : _hotkey.VirtualKey;
+    private int ActivationKeyFor(HotkeyKind kind) => kind switch
+    {
+        HotkeyKind.Raw => _rawHotkey?.VirtualKey ?? 0,
+        HotkeyKind.Agent => _agentHotkey?.VirtualKey ?? 0,
+        _ => _hotkey.VirtualKey
+    };
 
     /// <summary>
     /// Decides which binding the currently pressed keys satisfy. The binding
@@ -660,19 +703,41 @@ public sealed class GlobalHotkeyService : IDisposable
     /// </summary>
     private HotkeyKind? MatchHeldHotkey()
     {
-        var raw = _rawHotkey;
-        bool primaryDown = IsConfiguredHotkeyDown(_hotkey);
-        bool rawDown = raw is not null && raw.Value != _hotkey && IsConfiguredHotkeyDown(raw.Value);
+        HotkeyKind? best = null;
+        int bestModifiers = -1;
 
-        if (primaryDown && rawDown)
+        foreach (var (kind, binding) in EnumerateBindings())
         {
-            return ModifierCount(raw!.Value.Modifiers) > ModifierCount(_hotkey.Modifiers)
-                ? HotkeyKind.Raw
-                : HotkeyKind.Primary;
+            if (!IsConfiguredHotkeyDown(binding)) continue;
+
+            int modifiers = ModifierCount(binding.Modifiers);
+            if (modifiers > bestModifiers)
+            {
+                best = kind;
+                bestModifiers = modifiers;
+            }
         }
-        if (primaryDown) return HotkeyKind.Primary;
-        if (rawDown) return HotkeyKind.Raw;
-        return null;
+
+        return best;
+    }
+
+    /// <summary>
+    /// The bindings to test, in priority order: an equal number of modifiers
+    /// resolves to the earliest one here, so a duplicated binding always means
+    /// plain dictation rather than silently becoming an agent instruction.
+    /// Callers must hold <see cref="_gate"/>.
+    /// </summary>
+    private IEnumerable<(HotkeyKind Kind, HoldHotkey Binding)> EnumerateBindings()
+    {
+        yield return (HotkeyKind.Primary, _hotkey);
+        if (_rawHotkey is HoldHotkey raw && raw != _hotkey)
+        {
+            yield return (HotkeyKind.Raw, raw);
+        }
+        if (_agentHotkey is HoldHotkey agent && agent != _hotkey && agent != _rawHotkey)
+        {
+            yield return (HotkeyKind.Agent, agent);
+        }
     }
 
     private static int ModifierCount(HotkeyModifiers modifiers) =>

@@ -83,6 +83,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <Grid Margin="2,0,2,26">
@@ -376,7 +377,83 @@
                     </StackPanel>
                 </ContentControl>
 
-                <ContentControl Grid.Row="3" Style="{StaticResource Card}">
+                <ContentControl Grid.Row="3" Style="{StaticResource Card}" Margin="0,0,0,18">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="AGENT MODE" Style="{StaticResource Eyebrow}" />
+                                <TextBlock Text="Tell Claude Code to do things on this PC" FontSize="19"
+                                           FontWeight="SemiBold" Margin="0,5,0,0" />
+                                <TextBlock Text="Speak an instruction and a fresh headless Claude Code session carries it out — open a website, sort some files, run a command."
+                                           Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,5,0,0"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                            <CheckBox x:Name="AgentModeCheck" Grid.Column="1" Content="Enabled" FontWeight="SemiBold"
+                                      VerticalAlignment="Center" Checked="AgentModeToggled" Unchecked="AgentModeToggled" />
+                        </Grid>
+
+                        <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,22,0,22" />
+
+                        <Border Background="#14DF4A4A" BorderBrush="#3ADF4A4A" BorderThickness="1"
+                                CornerRadius="12" Padding="16,13" Margin="0,0,0,22">
+                            <StackPanel>
+                                <TextBlock Text="THIS RUNS WITHOUT ASKING PERMISSION" Style="{StaticResource Eyebrow}"
+                                           Foreground="#E88A8A" />
+                                <TextBlock Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           Text="Agent mode starts Claude Code with permission prompts bypassed, because there is no way to answer a prompt while dictating. It can read, change and delete files, and run commands, in the folder below and anywhere it is told to look. Always Claude Sonnet 5 at medium effort — your cleanup model and reasoning choice do not apply here." />
+                            </StackPanel>
+                        </Border>
+
+                        <Grid x:Name="AgentOptions">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1*" />
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="1.8*" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel>
+                                <TextBlock Text="AGENT KEY — SEND TO CLAUDE CODE" Style="{StaticResource FieldLabel}" />
+                                <Button x:Name="AgentHotkeyCaptureButton"
+                                        Content="Not set"
+                                        Style="{StaticResource SecondaryButton}"
+                                        HorizontalContentAlignment="Left"
+                                        PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
+                                        PreviewKeyDown="HotkeyCaptureKeyDown"
+                                        PreviewKeyUp="HotkeyCaptureKeyUp"
+                                        LostKeyboardFocus="HotkeyCaptureLostFocus" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="WORKING FOLDER" Style="{StaticResource FieldLabel}" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="AgentFolderBox" VerticalContentAlignment="Center"
+                                             TextChanged="SettingsChanged" />
+                                    <Button Grid.Column="1" Content="Browse…" Style="{StaticResource SecondaryButton}"
+                                            Padding="13,6" MinHeight="32" Margin="8,0,0,0" FontSize="12"
+                                            Click="BrowseAgentFolderClicked" />
+                                </Grid>
+                            </StackPanel>
+
+                            <TextBlock x:Name="AgentStatus" Grid.Row="1" Grid.ColumnSpan="3" Margin="1,10,0,0"
+                                       Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
+                        </Grid>
+                    </StackPanel>
+                </ContentControl>
+
+                <ContentControl Grid.Row="4" Style="{StaticResource Card}">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -404,7 +481,7 @@
                     </Grid>
                 </ContentControl>
 
-                <Grid Grid.Row="4" Margin="3,20,3,0">
+                <Grid Grid.Row="5" Margin="3,20,3,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />

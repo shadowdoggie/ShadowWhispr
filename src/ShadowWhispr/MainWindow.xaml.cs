@@ -132,6 +132,7 @@ public partial class MainWindow : Window
         {
             _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
             _hotkey.RawHotkey = ParseOptionalHotkey(_settings.RawHotkey);
+            _hotkey.AgentHotkey = ResolveAgentHotkey();
             _hotkey.Start();
         }
         catch (Exception ex)
@@ -549,7 +550,7 @@ public partial class MainWindow : Window
             _tones.PlayPressed();
             _insertionTarget = _inserter.CaptureTarget();
             await _audio.StartAsync(_lifetime?.Token ?? default);
-            RunStatus.Text = e.Kind == HotkeyKind.Raw ? "Listening… (raw)" : "Listening…";
+            RunStatus.Text = ListeningLabel(e.Kind);
             _tray.SetState(TrayState.Listening);
         }
         catch (Exception ex)
@@ -568,10 +569,15 @@ public partial class MainWindow : Window
         if (!_audio.IsRecording || e.Kind != _activeHotkeyKind) return;
         _tapLatched = true;
         AppLog.Write($"Tap dictation latched on ({e.Kind})");
-        RunStatus.Text = e.Kind == HotkeyKind.Raw
-            ? "Listening… (raw — press again to stop)"
-            : "Listening… (press again to stop)";
+        RunStatus.Text = $"{ListeningLabel(e.Kind)} — press again to stop";
     }
+
+    private static string ListeningLabel(HotkeyKind kind) => kind switch
+    {
+        HotkeyKind.Raw => "Listening… (raw)",
+        HotkeyKind.Agent => "Listening… (agent)",
+        _ => "Listening…"
+    };
 
     private async void OnHotkeyReleased(object? sender, HotkeyEventArgs e)
     {
@@ -658,6 +664,15 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // The agent hotkey is not dictation at all: the transcript is an
+            // instruction for Claude Code, and its answer is only ever shown
+            // here. Nothing is typed into the window the user was in.
+            if (job.Kind == HotkeyKind.Agent)
+            {
+                await RunAgentJobAsync(text, cancellationToken);
+                return;
+            }
+
             // The raw hotkey deliberately skips cleanup, so what Parakeet heard
             // is what gets typed.
             if (_settings.AiEnabled && job.Kind != HotkeyKind.Raw)
@@ -699,6 +714,34 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Sends one spoken instruction to a fresh headless Claude Code session and
+    /// shows what it reports back. Failures are reported the same way a result
+    /// is, because the only place the user can see either is this window.
+    /// </summary>
+    private async Task RunAgentJobAsync(string instruction, CancellationToken cancellationToken)
+    {
+        var folder = _settings.ResolveAgentWorkingDirectory();
+        AppLog.Write($"Agent instruction received ({instruction.Length} characters), folder '{folder}'");
+        TranscriptBox.Text = $"→ {instruction}\n\nWorking…";
+        SetQueueStatus("Claude Code is working…");
+
+        try
+        {
+            var reply = await _ai.RunAgentAsync(instruction, folder, cancellationToken);
+            TranscriptBox.Text = $"→ {instruction}\n\n{reply}";
+            SetQueueStatus("Agent finished");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            AppLog.Write("Agent run failed", ex);
+            TranscriptBox.Text = $"→ {instruction}\n\nAgent failed: {ex.Message}";
+            RunStatus.Text = "Agent failed";
+            _tray.SetState(TrayState.Error);
+        }
+    }
+
+    /// <summary>
     /// Shows processing progress in the status pill, with a queue count when
     /// messages are waiting. While the user is recording, "Listening…" owns the
     /// pill and progress updates stay out of its way.
@@ -719,6 +762,12 @@ public partial class MainWindow : Window
         RawHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.RawHotkey)
             ? OptionalHotkeyUnsetLabel
             : _settings.RawHotkey;
+        AgentHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.AgentHotkey)
+            ? OptionalHotkeyUnsetLabel
+            : _settings.AgentHotkey;
+        AgentModeCheck.IsChecked = _settings.AgentModeEnabled;
+        AgentFolderBox.Text = _settings.ResolveAgentWorkingDirectory();
+        AgentOptions.IsEnabled = _settings.AgentModeEnabled;
         RefreshMicrophoneList(_settings.Microphone);
         _audio.PreferredDeviceName = _settings.Microphone;
         KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
@@ -738,6 +787,81 @@ public partial class MainWindow : Window
         AiOptions.IsEnabled = _settings.AiEnabled;
         AutoUpdateCheck.IsChecked = _settings.AutoUpdateEnabled;
         _uiReady = true;
+        UpdateAgentStatus();
+    }
+
+    // --- Agent mode --------------------------------------------------------
+
+    private void AgentModeToggled(object sender, RoutedEventArgs e)
+    {
+        if (AgentOptions is null) return;
+        AgentOptions.IsEnabled = AgentModeCheck.IsChecked == true;
+        if (!_uiReady) return;
+
+        ReadUiIntoSettings();
+        AppLog.Write($"Agent mode set to {_settings.AgentModeEnabled} " +
+                     $"(key '{(_settings.AgentHotkey.Length == 0 ? "(none)" : _settings.AgentHotkey)}', " +
+                     $"folder '{_settings.ResolveAgentWorkingDirectory()}')");
+        _hotkey.AgentHotkey = ResolveAgentHotkey();
+        UpdateAgentStatus();
+        UpdateTrayStatus();
+        QueueAutoSave();
+    }
+
+    private void BrowseAgentFolderClicked(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Folder for agent mode",
+            InitialDirectory = Directory.Exists(AgentFolderBox.Text)
+                ? AgentFolderBox.Text
+                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+        };
+
+        if (dialog.ShowDialog(this) != true) return;
+
+        AgentFolderBox.Text = dialog.FolderName;
+        AppLog.Write($"Agent working folder set to '{dialog.FolderName}'");
+    }
+
+    /// <summary>
+    /// The agent binding the hotkey hook should listen for: none unless agent
+    /// mode is switched on and a key is actually assigned, so a leftover key
+    /// from a disabled agent mode can never quietly start a session.
+    /// </summary>
+    private HoldHotkey? ResolveAgentHotkey() =>
+        _settings.AgentModeEnabled ? ParseOptionalHotkey(_settings.AgentHotkey) : null;
+
+    /// <summary>
+    /// Says in one line what agent mode will actually do when the key is
+    /// pressed, including the two ways it can be switched on but inert: no key
+    /// assigned, or a working folder that does not exist.
+    /// </summary>
+    private void UpdateAgentStatus()
+    {
+        if (!_settings.AgentModeEnabled)
+        {
+            AgentStatus.Text = "Off. Your dictation keys are unaffected.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.AgentHotkey))
+        {
+            AgentStatus.Text = "Assign an agent key above — agent mode does nothing until you do.";
+            return;
+        }
+
+        var folder = _settings.ResolveAgentWorkingDirectory();
+        if (!Directory.Exists(folder))
+        {
+            AgentStatus.Text = $"This folder does not exist: {folder}";
+            return;
+        }
+
+        AgentStatus.Text =
+            $"Hold or tap {_settings.AgentHotkey} and say what you want done. Every press starts a brand new " +
+            $"Claude Code session in {folder} — it remembers nothing from the last one. The reply appears " +
+            "under \"Last transcript\" and is never pasted anywhere.";
     }
 
     // --- Microphone selection ---------------------------------------------
@@ -1035,6 +1159,7 @@ public partial class MainWindow : Window
         if (!_uiReady) return;
         ReadUiIntoSettings();
         _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
+        UpdateAgentStatus();
         QueueAutoSave();
     }
 
@@ -1126,9 +1251,13 @@ public partial class MainWindow : Window
         if (button is null) return;
 
         var isRaw = ReferenceEquals(button, RawHotkeyCaptureButton);
-        var isOptional = isRaw;
-        var fieldName = isRaw ? "raw" : "main";
-        string OwnStoredValue() => isRaw ? _settings.RawHotkey : _settings.Hotkey;
+        var isAgent = ReferenceEquals(button, AgentHotkeyCaptureButton);
+        // Only the main dictation key is required; the other two may be unset.
+        var isOptional = isRaw || isAgent;
+        var fieldName = isRaw ? "raw" : isAgent ? "agent" : "main";
+        string OwnStoredValue() => isRaw ? _settings.RawHotkey
+            : isAgent ? _settings.AgentHotkey
+            : _settings.Hotkey;
         var text = clear ? string.Empty : hotkey?.ToString() ?? _hotkeyBeforeCapture;
 
         // Cancelling on an unassigned optional field restores its placeholder,
@@ -1139,7 +1268,7 @@ public partial class MainWindow : Window
         // any other field is refused instead of silently shadowing it.
         if (text.Length > 0)
         {
-            string[] all = [_settings.Hotkey, _settings.RawHotkey];
+            string[] all = [_settings.Hotkey, _settings.RawHotkey, _settings.AgentHotkey];
             var others = all.Where(other => !string.Equals(other, OwnStoredValue(), StringComparison.Ordinal));
             if (others.Any(other => string.Equals(text, other, StringComparison.OrdinalIgnoreCase)))
             {
@@ -1165,6 +1294,12 @@ public partial class MainWindow : Window
             _settings.RawHotkey = text;
             _hotkey.RawHotkey = ParseOptionalHotkey(text);
         }
+        else if (isAgent)
+        {
+            _settings.AgentHotkey = text;
+            _hotkey.AgentHotkey = ResolveAgentHotkey();
+            UpdateAgentStatus();
+        }
         else
         {
             _settings.Hotkey = text;
@@ -1179,7 +1314,7 @@ public partial class MainWindow : Window
 
     private void ResetHotkeyHint() => HotkeyHint.Text =
         "Hold a key while you speak, or tap it quickly to keep recording hands-free until you press it again. " +
-        "Click a field, then press the key you want. Delete clears the optional hotkey; Escape cancels.";
+        "Click a field, then press the key you want. Delete clears an optional hotkey; Escape cancels.";
 
     private static Key GetActualKey(KeyEventArgs e) => e.Key switch
     {
@@ -1203,7 +1338,19 @@ public partial class MainWindow : Window
             _settings.Hotkey = HotkeyCaptureButton.Content?.ToString() ?? "Right Ctrl";
             var raw = RawHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
             _settings.RawHotkey = raw == OptionalHotkeyUnsetLabel ? string.Empty : raw;
+            var agent = AgentHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
+            _settings.AgentHotkey = agent == OptionalHotkeyUnsetLabel ? string.Empty : agent;
         }
+        _settings.AgentModeEnabled = AgentModeCheck.IsChecked == true;
+        // Stored blank when it is just the default folder, so a later change to
+        // what that default is still reaches anyone who never picked their own.
+        var agentFolder = AgentFolderBox.Text.Trim();
+        _settings.AgentWorkingDirectory = string.Equals(
+            agentFolder,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : agentFolder;
         // The Windows-default entry is stored as empty; a disconnected saved mic
         // keeps its real name in the list, so its name (not "default") persists.
         if (MicCombo.SelectedItem is MicrophoneDevice mic)
@@ -1379,6 +1526,8 @@ public partial class MainWindow : Window
         {
             var parts = new List<string> { $"Hold or tap {_settings.Hotkey}" };
             if (!string.IsNullOrWhiteSpace(_settings.RawHotkey)) parts.Add($"raw {_settings.RawHotkey}");
+            if (_settings.AgentModeEnabled && !string.IsNullOrWhiteSpace(_settings.AgentHotkey))
+                parts.Add($"agent {_settings.AgentHotkey}");
             status = string.Join(" · ", parts);
         }
 

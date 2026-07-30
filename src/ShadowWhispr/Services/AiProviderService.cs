@@ -50,12 +50,35 @@ public sealed partial class AiProviderService
     private static readonly string[] ReasoningOrder =
         ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "on"];
 
+    /// <summary>
+    /// Agent mode is Sonnet 5 only. Its tool use is what the feature is for, and
+    /// the other models are neither priced nor tuned for running a whole task
+    /// from a single spoken sentence.
+    /// </summary>
+    public const string AgentModelId = "claude-sonnet-5";
+
+    /// <summary>
+    /// Agent mode always runs at medium effort, deliberately ignoring the
+    /// reasoning level chosen for dictation cleanup: that setting is about how
+    /// carefully a transcript is tidied, which says nothing about how hard a
+    /// desktop task should be thought through.
+    /// </summary>
+    public const string AgentEffort = "medium";
+
     private readonly TimeSpan _commandTimeout;
+
+    /// <summary>
+    /// Agent runs get their own, much longer limit: cleaning a transcript is one
+    /// model call, while carrying out a spoken task can mean many tool calls.
+    /// </summary>
+    private readonly TimeSpan _agentTimeout;
+
     private readonly string _isolatedWorkDirectory;
 
-    public AiProviderService(TimeSpan? commandTimeout = null)
+    public AiProviderService(TimeSpan? commandTimeout = null, TimeSpan? agentTimeout = null)
     {
         _commandTimeout = commandTimeout ?? TimeSpan.FromMinutes(5);
+        _agentTimeout = agentTimeout ?? TimeSpan.FromMinutes(20);
         _isolatedWorkDirectory = Path.Combine(Path.GetTempPath(), "ShadowWhispr", "ai-workspace");
     }
 
@@ -278,6 +301,98 @@ public sealed partial class AiProviderService
         }
 
         return output.Trim();
+    }
+
+    /// <summary>
+    /// Hands a spoken instruction to a headless Claude Code session that is
+    /// allowed to act on this PC, and returns what it reports back.
+    ///
+    /// Every call is a brand new session: nothing is resumed, and with
+    /// <c>--no-session-persistence</c> nothing is written to disk either, so one
+    /// spoken sentence can never be coloured by the last one.
+    /// </summary>
+    /// <param name="instruction">The transcribed instruction, spoken by the user.</param>
+    /// <param name="workingDirectory">The folder the session starts in.</param>
+    public async Task<string> RunAgentAsync(
+        string instruction,
+        string workingDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
+
+        if (string.IsNullOrWhiteSpace(workingDirectory) || !Directory.Exists(workingDirectory))
+        {
+            AppLog.Write($"Agent run refused: working folder does not exist ({workingDirectory})");
+            throw new AiProviderException(
+                $"The agent working folder does not exist: {workingDirectory}");
+        }
+
+        var arguments = new List<string>
+        {
+            "-p",
+            "--model", AgentModelId,
+            "--effort", AgentEffort,
+            // Voice gives no way to answer a permission prompt, so a session that
+            // stopped to ask would simply hang until it timed out.
+            //
+            // Both flags are passed on purpose. --permission-mode sets the mode
+            // for the session, while --dangerously-skip-permissions is the one
+            // that does not depend on the user having accepted Claude Code's
+            // one-time bypass warning in an interactive session first - which a
+            // user who has only ever used ShadowWhispr never has.
+            "--permission-mode", "bypassPermissions",
+            "--dangerously-skip-permissions",
+            "--no-session-persistence",
+            "--output-format", "json",
+            "--append-system-prompt", AgentSystemPrompt
+        };
+
+        AppLog.Write(
+            $"Agent run starting: model={AgentModelId}, effort={AgentEffort}, " +
+            $"cwd={workingDirectory}, instruction length={instruction.Length}");
+
+        var result = await RunAsync(
+            GetCommand(Claude),
+            arguments,
+            instruction,
+            workingDirectory,
+            environment: null,
+            cancellationToken,
+            _agentTimeout);
+
+        EnsureSuccess(Claude, result);
+
+        string? text;
+        bool isError;
+        try
+        {
+            using var document = JsonDocument.Parse(result.StandardOutput);
+            var root = document.RootElement;
+            text = GetString(root, "result");
+            isError = root.TryGetProperty("is_error", out var errorFlag) &&
+                      errorFlag.ValueKind == JsonValueKind.True;
+        }
+        catch (JsonException exception)
+        {
+            AppLog.Write("Agent run returned unreadable JSON", exception);
+            throw new AiProviderException("Claude Code returned an unreadable response.", exception);
+        }
+
+        if (isError)
+        {
+            AppLog.Write($"Agent run reported a failure: {text ?? "(no detail)"}");
+            throw new AiProviderException(
+                string.IsNullOrWhiteSpace(text) ? "Claude Code reported an error." : text);
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            AppLog.Write("Agent run finished but returned no text");
+            throw new AiProviderException("Claude Code finished without saying anything.");
+        }
+
+        AppLog.Write($"Agent run finished, reply length={text.Length}");
+        return text.Trim();
     }
 
     private async Task<IReadOnlyList<AiModelOption>> DiscoverCodexModelsAsync(CancellationToken cancellationToken)
@@ -674,10 +789,12 @@ public sealed partial class AiProviderService
         string? standardInput,
         string workingDirectory,
         IReadOnlyDictionary<string, string?>? environment,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
+        var effectiveTimeout = timeout ?? _commandTimeout;
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(_commandTimeout);
+        timeoutSource.CancelAfter(effectiveTimeout);
 
         // Resolve to a full path rather than letting the OS search this
         // process's frozen PATH, so a CLI installed after ShadowWhispr started
@@ -747,8 +864,8 @@ public sealed partial class AiProviderService
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             TryKill(process);
-            AppLog.Write($"AI CLI timed out after {_commandTimeout.TotalMinutes:0.#} minutes: {fileName}");
-            throw new AiProviderException($"{fileName} did not finish within {_commandTimeout.TotalMinutes:0.#} minutes.");
+            AppLog.Write($"AI CLI timed out after {effectiveTimeout.TotalMinutes:0.#} minutes: {fileName}");
+            throw new AiProviderException($"{fileName} did not finish within {effectiveTimeout.TotalMinutes:0.#} minutes.");
         }
         catch
         {
@@ -1019,6 +1136,19 @@ public sealed partial class AiProviderService
 
     [GeneratedRegex(@"^(?<model>Gemini\s.+?)\s*\((?<effort>[^()]+)\)$", RegexOptions.IgnoreCase)]
     private static partial Regex ModelWithEffortRegex();
+
+    /// <summary>
+    /// Appended to Claude Code's own system prompt for agent runs. It only adds
+    /// the two things the session cannot work out for itself: that the
+    /// instruction was spoken (so speech-to-text slips are likely) and that the
+    /// reply is read on a card in ShadowWhispr rather than in a terminal.
+    /// </summary>
+    private const string AgentSystemPrompt =
+        "This instruction was dictated out loud and transcribed automatically, so expect speech-to-text slips " +
+        "in names, paths and punctuation, and read it for what was meant rather than literally. " +
+        "There is no one at a keyboard to answer questions: carry the task out, and only if it is truly " +
+        "impossible say what stopped you. Your reply is shown on a small card in ShadowWhispr and cannot be " +
+        "replied to, so answer in at most a few plain sentences with no Markdown, code fences or file listings.";
 
     private const string BaseSystemPrompt =
         "You are a text post-processor. Never use tools, files, shell commands, web access, skills, agents, or external context. " +

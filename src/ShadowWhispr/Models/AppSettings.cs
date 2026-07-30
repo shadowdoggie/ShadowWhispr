@@ -11,6 +11,13 @@ public sealed class AppSettings
     public string RawHotkey { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional third hotkey that hands the transcript to a headless Claude Code
+    /// session as an instruction instead of typing it. Empty means "not
+    /// configured", which is also what leaves agent mode unusable.
+    /// </summary>
+    public string AgentHotkey { get; set; } = string.Empty;
+
+    /// <summary>
     /// The name of the microphone to record from, exactly as Windows lists it.
     /// Empty means "follow the Windows default microphone". Stored by name so
     /// the choice survives device numbers reshuffling between sessions.
@@ -111,6 +118,28 @@ public sealed class AppSettings
     /// offers this, so it is a single flag rather than a per-provider map.
     /// </summary>
     public bool CodexFastMode { get; set; }
+
+    /// <summary>
+    /// Turns the agent hotkey into a live Claude Code session that can act on
+    /// this PC. Off by default: it runs with permission prompts bypassed, so it
+    /// is never something the app switches on by itself.
+    /// </summary>
+    public bool AgentModeEnabled { get; set; }
+
+    /// <summary>
+    /// The folder the headless Claude Code session starts in, which is also the
+    /// only tree it can reach without being told a full path. Empty means the
+    /// Windows user profile folder.
+    /// </summary>
+    public string AgentWorkingDirectory { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The working folder to actually use, with the empty default resolved.
+    /// </summary>
+    public string ResolveAgentWorkingDirectory() =>
+        string.IsNullOrWhiteSpace(AgentWorkingDirectory)
+            ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            : AgentWorkingDirectory.Trim();
 
     public string CustomInstruction { get; set; } =
         """
