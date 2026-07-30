@@ -723,15 +723,42 @@ public partial class MainWindow : Window
         var folder = _settings.ResolveAgentWorkingDirectory();
         AppLog.Write($"Agent instruction received ({instruction.Length} characters), folder '{folder}'");
         TranscriptBox.Text = $"→ {instruction}\n\nWorking…";
-        SetQueueStatus("Claude Code is working…");
 
         try
         {
+            // Optional: tidy the spoken instruction before the agent acts on it.
+            // A failure here is not fatal — the raw transcript is still a usable
+            // instruction, and refusing to act on it would be worse than acting
+            // on a slightly messy one.
+            if (_settings.AgentCleanupEnabled)
+            {
+                SetQueueStatus($"Cleaning the instruction with {_settings.Provider}…");
+                try
+                {
+                    instruction = await _ai.ProcessAsync(
+                        _settings.Provider,
+                        _settings.ModelId,
+                        _settings.Reasoning,
+                        _settings.CustomInstruction,
+                        instruction,
+                        cancellationToken,
+                        _settings.CodexFastMode);
+                    AppLog.Write($"Agent instruction cleaned up with {_settings.Provider}");
+                    TranscriptBox.Text = $"→ {instruction}\n\nWorking…";
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    AppLog.Write("Cleaning the agent instruction failed; sending it as spoken", ex);
+                }
+            }
+
+            SetQueueStatus("Claude Code is working…");
             var reply = await _ai.RunAgentAsync(
                 instruction,
                 folder,
                 _settings.AgentModelId,
                 _settings.AgentEffort,
+                _settings.AgentInstruction,
                 cancellationToken);
             TranscriptBox.Text = $"→ {instruction}\n\n{reply}";
             SetQueueStatus("Agent finished");
@@ -780,6 +807,8 @@ public partial class MainWindow : Window
             model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId));
         AgentEffortCombo.ItemsSource = AiProviderService.AgentEffortLevels;
         AgentEffortCombo.SelectedItem = AiProviderService.NormalizeAgentEffort(_settings.AgentEffort);
+        AgentCleanupCheck.IsChecked = _settings.AgentCleanupEnabled;
+        AgentInstructionBox.Text = _settings.AgentInstruction;
         RefreshMicrophoneList(_settings.Microphone);
         _audio.PreferredDeviceName = _settings.Microphone;
         KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
@@ -827,6 +856,27 @@ public partial class MainWindow : Window
         AppLog.Write($"Agent model set to {_settings.AgentModelId} at {_settings.AgentEffort} effort");
         UpdateAgentStatus();
         QueueAutoSave();
+    }
+
+    /// <summary>
+    /// The agent card's own settings handler. Kept apart from
+    /// <see cref="SettingsChanged"/> so that typing in the standing-facts box
+    /// does not re-apply the dictation hotkey on every keystroke.
+    /// </summary>
+    private void AgentSettingsChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        UpdateAgentStatus();
+        QueueAutoSave();
+    }
+
+    private void AgentInstructionResizeDragged(object sender, DragDeltaEventArgs e)
+    {
+        AgentInstructionBox.Height = Math.Clamp(
+            AgentInstructionBox.ActualHeight + e.VerticalChange,
+            AgentInstructionBox.MinHeight,
+            AgentInstructionBox.MaxHeight);
     }
 
     private void BrowseAgentFolderClicked(object sender, RoutedEventArgs e)
@@ -883,11 +933,15 @@ public partial class MainWindow : Window
             .FirstOrDefault(model => model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId))
             ?.DisplayName ?? _settings.AgentModelId;
 
+        var cleanup = _settings.AgentCleanupEnabled
+            ? $" What you say is tidied by {_settings.Provider} first."
+            : string.Empty;
+
         AgentStatus.Text =
             $"Hold or tap {_settings.AgentHotkey} and say what you want done. Every press starts a brand new " +
             $"{modelName} session at {AiProviderService.NormalizeAgentEffort(_settings.AgentEffort)} effort in " +
-            $"{folder} — it remembers nothing from the last one. The reply appears under \"Last transcript\" " +
-            "and is never pasted anywhere.";
+            $"{folder} — it remembers nothing from the last one.{cleanup} The reply appears under " +
+            "\"Last transcript\" and is never pasted anywhere.";
     }
 
     // --- Microphone selection ---------------------------------------------
@@ -1388,6 +1442,10 @@ public partial class MainWindow : Window
         {
             _settings.AgentEffort = agentEffort;
         }
+        _settings.AgentCleanupEnabled = AgentCleanupCheck.IsChecked == true;
+        // An emptied box means "no standing facts", not "give me the starter
+        // text back": someone who deliberately cleared it should stay cleared.
+        _settings.AgentInstruction = AgentInstructionBox.Text.Trim();
         // The Windows-default entry is stored as empty; a disconnected saved mic
         // keeps its real name in the list, so its name (not "default") persists.
         if (MicCombo.SelectedItem is MicrophoneDevice mic)

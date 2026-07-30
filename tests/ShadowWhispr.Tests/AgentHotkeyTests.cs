@@ -168,6 +168,15 @@ public sealed class AgentHotkeyTests
     public void AnUnknownStoredModelFallsBackToTheDefault(string? stored, string expected) =>
         Assert.Equal(expected, AiProviderService.NormalizeAgentModelId(stored));
 
+    [Fact]
+    public void StandingFactsShipWithAStarterTemplateAndCleanupIsOptOut()
+    {
+        var settings = new AppSettings();
+
+        Assert.False(settings.AgentCleanupEnabled);
+        Assert.NotEmpty(settings.AgentInstruction);
+    }
+
     [Theory]
     [InlineData("max", "max")]
     [InlineData("XHIGH", "xhigh")]

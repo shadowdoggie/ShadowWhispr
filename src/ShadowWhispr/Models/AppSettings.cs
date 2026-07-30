@@ -147,6 +147,27 @@ public sealed class AppSettings
     public string AgentEffort { get; set; } = "medium";
 
     /// <summary>
+    /// Standing facts handed to every agent session on top of its own system
+    /// prompt: what the machine is, which apps matter, what names mean. Every
+    /// session starts blank, so anything the agent should always know has to
+    /// live here rather than being explained out loud each time.
+    /// </summary>
+    public string AgentInstruction { get; set; } =
+        """
+        You are running on my own Windows PC, signed in as me, with full shell access. Desktop automation is expected and allowed: activate windows, send keystrokes, start apps, open URLs, click things. Do not turn a task down because it involves an app rather than a file — work out how to drive it and try.
+
+        Facts about my setup:
+        - (put your own standing facts here: which apps you use, what "my server" or "the site" means, your usernames, where your projects live)
+        """;
+
+    /// <summary>
+    /// Runs the spoken instruction through the AI cleanup above before handing
+    /// it to the agent. Off by default: it costs a second call and a couple of
+    /// seconds, which is only worth it if the raw transcript trips the agent up.
+    /// </summary>
+    public bool AgentCleanupEnabled { get; set; }
+
+    /// <summary>
     /// The working folder to actually use, with the empty default resolved.
     /// </summary>
     public string ResolveAgentWorkingDirectory() =>

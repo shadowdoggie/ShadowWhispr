@@ -348,11 +348,16 @@ public sealed partial class AiProviderService
     /// <param name="workingDirectory">The folder the session starts in.</param>
     /// <param name="modelId">The chosen agent model; anything unknown falls back to the default.</param>
     /// <param name="effort">The chosen effort level; anything unknown falls back to the default.</param>
+    /// <param name="standingInstruction">
+    /// The user's own standing facts, added after ours. Theirs come last so that
+    /// what they wrote wins where the two disagree.
+    /// </param>
     public async Task<string> RunAgentAsync(
         string instruction,
         string workingDirectory,
         string? modelId = null,
         string? effort = null,
+        string? standingInstruction = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
@@ -383,12 +388,13 @@ public sealed partial class AiProviderService
             "--dangerously-skip-permissions",
             "--no-session-persistence",
             "--output-format", "json",
-            "--append-system-prompt", AgentSystemPrompt
+            "--append-system-prompt", BuildAgentSystemPrompt(standingInstruction)
         };
 
         AppLog.Write(
             $"Agent run starting: model={model}, effort={chosenEffort}, " +
-            $"cwd={workingDirectory}, instruction length={instruction.Length}");
+            $"cwd={workingDirectory}, instruction length={instruction.Length}, " +
+            $"standing facts {(string.IsNullOrWhiteSpace(standingInstruction) ? "none" : $"{standingInstruction.Trim().Length} characters")}");
 
         var result = await RunAsync(
             GetCommand(Claude),
@@ -1182,6 +1188,22 @@ public sealed partial class AiProviderService
     /// instruction was spoken (so speech-to-text slips are likely) and that the
     /// reply is read on a card in ShadowWhispr rather than in a terminal.
     /// </summary>
+    /// <summary>
+    /// Our own agent guidance with the user's standing facts appended, clearly
+    /// marked as theirs so the session can tell the two apart.
+    /// </summary>
+    private static string BuildAgentSystemPrompt(string? standingInstruction) =>
+        string.IsNullOrWhiteSpace(standingInstruction)
+            ? AgentSystemPrompt
+            : $"""
+               {AgentSystemPrompt}
+
+               The user has also given you these standing facts about themselves and their machine. Where they contradict anything above, follow them:
+               <standing-facts>
+               {standingInstruction.Trim()}
+               </standing-facts>
+               """;
+
     private const string AgentSystemPrompt =
         "This instruction was dictated out loud and transcribed automatically, so expect speech-to-text slips " +
         "in names, paths and punctuation, and read it for what was meant rather than literally. " +

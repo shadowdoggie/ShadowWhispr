@@ -414,6 +414,7 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="1*" />
@@ -461,7 +462,48 @@
                                 <ComboBox x:Name="AgentEffortCombo" SelectionChanged="AgentModelChanged" />
                             </StackPanel>
 
-                            <TextBlock x:Name="AgentStatus" Grid.Row="2" Grid.ColumnSpan="5" Margin="1,14,0,0"
+                            <StackPanel Grid.Row="1" Grid.Column="4" Margin="0,16,0,0">
+                                <TextBlock Text="BEFORE SENDING" Style="{StaticResource FieldLabel}" />
+                                <Border Background="#12FFFFFF" BorderBrush="{StaticResource LineBrush}"
+                                        BorderThickness="1" CornerRadius="8" Padding="12,9">
+                                    <CheckBox x:Name="AgentCleanupCheck" Content="Clean up what I said"
+                                              FontSize="12.5" Checked="AgentSettingsChanged"
+                                              Unchecked="AgentSettingsChanged"
+                                              ToolTip="Runs the spoken instruction through your AI cleanup provider first, then hands the tidied version to the agent." />
+                                </Border>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="2" Grid.ColumnSpan="5" Margin="0,20,0,0">
+                                <TextBlock Text="STANDING FACTS FOR EVERY AGENT SESSION"
+                                           Style="{StaticResource FieldLabel}" />
+                                <TextBlock Margin="0,0,0,8" FontSize="11" TextWrapping="Wrap"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           Text="Every press starts a session that knows nothing about you. Anything it should always know goes here — which apps you use, what your shorthand means, where things live." />
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="11" />
+                                    </Grid.RowDefinitions>
+                                    <TextBox x:Name="AgentInstructionBox" Height="170" MinHeight="60" MaxHeight="420"
+                                             FontSize="15" AcceptsReturn="True" TextWrapping="Wrap"
+                                             VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"
+                                             TextChanged="AgentSettingsChanged" />
+                                    <Thumb Grid.Row="1" Cursor="SizeNS" DragDelta="AgentInstructionResizeDragged"
+                                           ToolTip="Drag to resize">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Grid Background="Transparent">
+                                                    <Border Width="46" Height="4" CornerRadius="2"
+                                                            Background="{StaticResource LineStrongBrush}"
+                                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Grid>
+                            </StackPanel>
+
+                            <TextBlock x:Name="AgentStatus" Grid.Row="3" Grid.ColumnSpan="5" Margin="1,14,0,0"
                                        Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
                         </Grid>
                     </StackPanel>
