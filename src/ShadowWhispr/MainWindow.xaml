@@ -415,6 +415,8 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="1*" />
@@ -424,56 +426,59 @@
                                 <ColumnDefinition Width="1*" />
                             </Grid.ColumnDefinitions>
 
-                            <StackPanel>
-                                <TextBlock Text="AGENT KEY — SEND TO CLAUDE CODE" Style="{StaticResource FieldLabel}" />
-                                <Button x:Name="AgentHotkeyCaptureButton"
-                                        Content="Not set"
-                                        Style="{StaticResource SecondaryButton}"
-                                        HorizontalContentAlignment="Left"
-                                        PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
-                                        PreviewKeyDown="HotkeyCaptureKeyDown"
-                                        PreviewKeyUp="HotkeyCaptureKeyUp"
-                                        LostKeyboardFocus="HotkeyCaptureLostFocus" />
-                            </StackPanel>
+                            <!-- Labels and controls sit in separate rows rather
+                                 than in a StackPanel each, so every control on
+                                 a row shares that row's height. Stacking them
+                                 let each work its own height out, and the key
+                                 button ended up shorter than the folder box
+                                 beside it. -->
+                            <TextBlock Text="AGENT KEY — SEND TO CLAUDE CODE" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Grid.Column="2" Grid.ColumnSpan="3" Text="WORKING FOLDER"
+                                       Style="{StaticResource FieldLabel}" />
 
-                            <StackPanel Grid.Column="2" Grid.ColumnSpan="3">
-                                <TextBlock Text="WORKING FOLDER" Style="{StaticResource FieldLabel}" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="AgentFolderBox" VerticalContentAlignment="Center"
-                                             TextChanged="SettingsChanged" />
-                                    <Button Grid.Column="1" Content="Browse…" Style="{StaticResource SecondaryButton}"
-                                            Padding="13,6" MinHeight="32" Margin="8,0,0,0" FontSize="12"
-                                            Click="BrowseAgentFolderClicked" />
-                                </Grid>
-                            </StackPanel>
+                            <Button x:Name="AgentHotkeyCaptureButton" Grid.Row="1"
+                                    Content="Not set"
+                                    Style="{StaticResource SecondaryButton}"
+                                    HorizontalContentAlignment="Left"
+                                    PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
+                                    PreviewKeyDown="HotkeyCaptureKeyDown"
+                                    PreviewKeyUp="HotkeyCaptureKeyUp"
+                                    LostKeyboardFocus="HotkeyCaptureLostFocus" />
 
-                            <StackPanel Grid.Row="1" Margin="0,16,0,0">
-                                <TextBlock Text="AGENT MODEL" Style="{StaticResource FieldLabel}" />
-                                <ComboBox x:Name="AgentModelCombo" DisplayMemberPath="DisplayName"
-                                          SelectionChanged="AgentModelChanged" />
-                            </StackPanel>
+                            <Grid Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="AgentFolderBox" VerticalContentAlignment="Center"
+                                         TextChanged="SettingsChanged" />
+                                <Button Grid.Column="1" Content="Browse…" Style="{StaticResource SecondaryButton}"
+                                        Padding="13,6" MinHeight="0" Margin="8,0,0,0" FontSize="12"
+                                        Click="BrowseAgentFolderClicked" />
+                            </Grid>
 
-                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,16,0,0">
-                                <TextBlock Text="AGENT EFFORT" Style="{StaticResource FieldLabel}" />
-                                <ComboBox x:Name="AgentEffortCombo" SelectionChanged="AgentModelChanged" />
-                            </StackPanel>
+                            <TextBlock Grid.Row="2" Text="AGENT MODEL" Style="{StaticResource FieldLabel}"
+                                       Margin="1,16,0,7" />
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="AGENT EFFORT"
+                                       Style="{StaticResource FieldLabel}" Margin="1,16,0,7" />
+                            <TextBlock Grid.Row="2" Grid.Column="4" Text="BEFORE SENDING"
+                                       Style="{StaticResource FieldLabel}" Margin="1,16,0,7" />
 
-                            <StackPanel Grid.Row="1" Grid.Column="4" Margin="0,16,0,0">
-                                <TextBlock Text="BEFORE SENDING" Style="{StaticResource FieldLabel}" />
-                                <Border Background="#12FFFFFF" BorderBrush="{StaticResource LineBrush}"
-                                        BorderThickness="1" CornerRadius="8" Padding="12,9">
-                                    <CheckBox x:Name="AgentCleanupCheck" Content="Clean up what I said"
-                                              FontSize="12.5" Checked="AgentSettingsChanged"
-                                              Unchecked="AgentSettingsChanged"
-                                              ToolTip="Runs the spoken instruction through your AI cleanup provider first, then hands the tidied version to the agent." />
-                                </Border>
-                            </StackPanel>
+                            <ComboBox x:Name="AgentModelCombo" Grid.Row="3" DisplayMemberPath="DisplayName"
+                                      SelectionChanged="AgentModelChanged" />
+                            <ComboBox x:Name="AgentEffortCombo" Grid.Row="3" Grid.Column="2"
+                                      SelectionChanged="AgentModelChanged" />
+                            <Border Grid.Row="3" Grid.Column="4" Background="#12FFFFFF"
+                                    BorderBrush="{StaticResource LineBrush}"
+                                    BorderThickness="1" CornerRadius="9" Padding="12,0">
+                                <CheckBox x:Name="AgentCleanupCheck" Content="Clean up what I said"
+                                          FontSize="12.5" VerticalAlignment="Center"
+                                          Checked="AgentSettingsChanged"
+                                          Unchecked="AgentSettingsChanged"
+                                          ToolTip="Runs the spoken instruction through your AI cleanup provider first, then hands the tidied version to the agent." />
+                            </Border>
 
-                            <StackPanel Grid.Row="2" Grid.ColumnSpan="5" Margin="0,20,0,0">
+                            <StackPanel Grid.Row="4" Grid.ColumnSpan="5" Margin="0,20,0,0">
                                 <TextBlock Text="STANDING FACTS FOR EVERY AGENT SESSION"
                                            Style="{StaticResource FieldLabel}" />
                                 <TextBlock Margin="0,0,0,8" FontSize="11" TextWrapping="Wrap"
@@ -503,7 +508,7 @@
                                 </Grid>
                             </StackPanel>
 
-                            <TextBlock x:Name="AgentStatus" Grid.Row="3" Grid.ColumnSpan="5" Margin="1,14,0,0"
+                            <TextBlock x:Name="AgentStatus" Grid.Row="5" Grid.ColumnSpan="5" Margin="1,14,0,0"
                                        Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
                         </Grid>
                     </StackPanel>

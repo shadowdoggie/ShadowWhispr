@@ -207,7 +207,9 @@
             <Setter Property="BorderBrush" Value="{StaticResource GoldBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="17,10" />
-            <Setter Property="MinHeight" Value="40" />
+            <!-- Matches the TextBox and ComboBox minimum, so a button sitting
+                 beside either lines up with it instead of riding 2px high. -->
+            <Setter Property="MinHeight" Value="42" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">

@@ -571,7 +571,7 @@ public partial class MainWindow : Window
         if (e.Kind == HotkeyKind.Agent && _agentRun is { } running)
         {
             AppLog.Write("Agent run stopped by pressing the agent key again");
-            _tones.PlayReleased();
+            _tones.PlayCancelled();
             try
             {
                 running.Cancel();
@@ -915,8 +915,7 @@ public partial class MainWindow : Window
         AgentModelCombo.ItemsSource = AiProviderService.AgentModels;
         AgentModelCombo.SelectedItem = AiProviderService.AgentModels.First(model =>
             model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId));
-        AgentEffortCombo.ItemsSource = AiProviderService.AgentEffortLevels;
-        AgentEffortCombo.SelectedItem = AiProviderService.NormalizeAgentEffort(_settings.AgentEffort);
+        UpdateAgentEffortChoices();
         AgentCleanupCheck.IsChecked = _settings.AgentCleanupEnabled;
         AgentInstructionBox.Text = _settings.AgentInstruction;
         RefreshMicrophoneList(_settings.Microphone);
@@ -962,10 +961,38 @@ public partial class MainWindow : Window
     private void AgentModelChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_uiReady) return;
+
+        // The models do not offer the same efforts, so the list is rebuilt for
+        // whichever one is now chosen before the choice is read back.
+        if (ReferenceEquals(sender, AgentModelCombo)) UpdateAgentEffortChoices();
+
         ReadUiIntoSettings();
         AppLog.Write($"Agent model set to {_settings.AgentModelId} at {_settings.AgentEffort} effort");
         UpdateAgentStatus();
         QueueAutoSave();
+    }
+
+    /// <summary>
+    /// Fills the effort list for the chosen agent model, keeping the current
+    /// choice when that model still offers it. Sonnet leaves out "low", so
+    /// switching to it from Opus on low has to land somewhere sensible rather
+    /// than on an empty box.
+    /// </summary>
+    private void UpdateAgentEffortChoices()
+    {
+        var wasReady = _uiReady;
+        _uiReady = false;
+        try
+        {
+            var modelId = (AgentModelCombo.SelectedItem as AiModelOption)?.Id ?? _settings.AgentModelId;
+            var levels = AiProviderService.GetAgentEffortLevels(modelId);
+            AgentEffortCombo.ItemsSource = levels;
+            AgentEffortCombo.SelectedItem = AiProviderService.NormalizeAgentEffort(modelId, _settings.AgentEffort);
+        }
+        finally
+        {
+            _uiReady = wasReady;
+        }
     }
 
     /// <summary>
@@ -1049,7 +1076,8 @@ public partial class MainWindow : Window
 
         AgentStatus.Text =
             $"Hold or tap {_settings.AgentHotkey} and say what you want done. Every press starts a brand new " +
-            $"{modelName} session at {AiProviderService.NormalizeAgentEffort(_settings.AgentEffort)} effort in " +
+            $"{modelName} session at " +
+            $"{AiProviderService.NormalizeAgentEffort(_settings.AgentModelId, _settings.AgentEffort)} effort in " +
             $"{folder} — it remembers nothing from the last one.{cleanup} Press the key again while it is " +
             "working to stop it. The reply appears under \"Last transcript\" and is never pasted anywhere.";
     }

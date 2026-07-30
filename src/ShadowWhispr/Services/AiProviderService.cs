@@ -73,13 +73,20 @@ public sealed partial class AiProviderService
     public static readonly string[] AgentEffortLevels = ["low", "medium", "high", "xhigh", "max"];
 
     /// <summary>
+    /// What Sonnet offers, which is everything but "low": at that level it is
+    /// not good enough at carrying out a spoken task to be worth offering, and a
+    /// setting that only ever disappoints is worse than no setting.
+    /// </summary>
+    private static readonly string[] SonnetAgentEffortLevels = ["medium", "high", "xhigh", "max"];
+
+    /// <summary>
     /// The models agent mode may run. Kept to the two that are worth handing a
     /// spoken task to, rather than the full Claude line-up: the rest are either
     /// no better at tool use or not worth the wait for a one-sentence job.
     /// </summary>
     public static IReadOnlyList<AiModelOption> AgentModels { get; } =
     [
-        new(Claude, DefaultAgentModelId, "Claude Sonnet 5", AgentEffortLevels, DefaultAgentEffort),
+        new(Claude, DefaultAgentModelId, "Claude Sonnet 5", SonnetAgentEffortLevels, DefaultAgentEffort),
         new(Claude, "claude-opus-5", "Claude Opus 5", AgentEffortLevels, DefaultAgentEffort)
     ];
 
@@ -92,9 +99,17 @@ public sealed partial class AiProviderService
             ? modelId!
             : DefaultAgentModelId;
 
-    /// <summary>Falls back to the default for the same reason as the model.</summary>
-    public static string NormalizeAgentEffort(string? effort) =>
-        AgentEffortLevels.Contains(effort, StringComparer.OrdinalIgnoreCase)
+    /// <summary>The effort levels the given model offers.</summary>
+    public static IReadOnlyList<string> GetAgentEffortLevels(string? modelId) =>
+        AgentModels.First(model => model.Id == NormalizeAgentModelId(modelId)).ReasoningLevels;
+
+    /// <summary>
+    /// Falls back to the default for the same reason as the model, and also when
+    /// the stored effort is one the chosen model does not offer — which is what
+    /// a settings file written before Sonnet dropped "low" contains.
+    /// </summary>
+    public static string NormalizeAgentEffort(string? modelId, string? effort) =>
+        GetAgentEffortLevels(modelId).Contains(effort, StringComparer.OrdinalIgnoreCase)
             ? effort!.ToLowerInvariant()
             : DefaultAgentEffort;
 
@@ -362,7 +377,7 @@ public sealed partial class AiProviderService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
         var model = NormalizeAgentModelId(modelId);
-        var chosenEffort = NormalizeAgentEffort(effort);
+        var chosenEffort = NormalizeAgentEffort(model, effort);
 
         if (string.IsNullOrWhiteSpace(workingDirectory) || !Directory.Exists(workingDirectory))
         {

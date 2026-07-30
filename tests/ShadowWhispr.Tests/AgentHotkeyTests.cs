@@ -202,5 +202,30 @@ public sealed class AgentHotkeyTests
     [InlineData("ultra", "medium")]
     [InlineData(null, "medium")]
     public void AnUnknownStoredEffortFallsBackToTheDefault(string? stored, string expected) =>
-        Assert.Equal(expected, AiProviderService.NormalizeAgentEffort(stored));
+        Assert.Equal(expected, AiProviderService.NormalizeAgentEffort("claude-opus-5", stored));
+
+    [Fact]
+    public void SonnetDoesNotOfferLowEffortButOpusDoes()
+    {
+        Assert.DoesNotContain("low", AiProviderService.GetAgentEffortLevels("claude-sonnet-5"));
+        Assert.Contains("low", AiProviderService.GetAgentEffortLevels("claude-opus-5"));
+
+        // Everything above low is still on offer for both.
+        Assert.Equal(
+            ["medium", "high", "xhigh", "max"],
+            AiProviderService.GetAgentEffortLevels("claude-sonnet-5"));
+    }
+
+    /// <summary>
+    /// A settings file written while Sonnet still offered "low" must not keep
+    /// running Sonnet on it, and switching from Opus on low has to land
+    /// somewhere Sonnet actually offers.
+    /// </summary>
+    [Fact]
+    public void SonnetFallsBackWhenTheStoredEffortIsLow()
+    {
+        Assert.Equal("medium", AiProviderService.NormalizeAgentEffort("claude-sonnet-5", "low"));
+        Assert.Equal("low", AiProviderService.NormalizeAgentEffort("claude-opus-5", "low"));
+        Assert.Equal("max", AiProviderService.NormalizeAgentEffort("claude-sonnet-5", "max"));
+    }
 }
