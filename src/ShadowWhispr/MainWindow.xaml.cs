@@ -727,7 +727,12 @@ public partial class MainWindow : Window
 
         try
         {
-            var reply = await _ai.RunAgentAsync(instruction, folder, cancellationToken);
+            var reply = await _ai.RunAgentAsync(
+                instruction,
+                folder,
+                _settings.AgentModelId,
+                _settings.AgentEffort,
+                cancellationToken);
             TranscriptBox.Text = $"→ {instruction}\n\n{reply}";
             SetQueueStatus("Agent finished");
         }
@@ -768,6 +773,13 @@ public partial class MainWindow : Window
         AgentModeCheck.IsChecked = _settings.AgentModeEnabled;
         AgentFolderBox.Text = _settings.ResolveAgentWorkingDirectory();
         AgentOptions.IsEnabled = _settings.AgentModeEnabled;
+        // Fixed lists rather than discovered ones: agent mode is Claude-only, so
+        // there is no CLI to ask and nothing that can come back empty.
+        AgentModelCombo.ItemsSource = AiProviderService.AgentModels;
+        AgentModelCombo.SelectedItem = AiProviderService.AgentModels.First(model =>
+            model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId));
+        AgentEffortCombo.ItemsSource = AiProviderService.AgentEffortLevels;
+        AgentEffortCombo.SelectedItem = AiProviderService.NormalizeAgentEffort(_settings.AgentEffort);
         RefreshMicrophoneList(_settings.Microphone);
         _audio.PreferredDeviceName = _settings.Microphone;
         KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
@@ -805,6 +817,15 @@ public partial class MainWindow : Window
         _hotkey.AgentHotkey = ResolveAgentHotkey();
         UpdateAgentStatus();
         UpdateTrayStatus();
+        QueueAutoSave();
+    }
+
+    private void AgentModelChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        AppLog.Write($"Agent model set to {_settings.AgentModelId} at {_settings.AgentEffort} effort");
+        UpdateAgentStatus();
         QueueAutoSave();
     }
 
@@ -858,10 +879,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        var modelName = AiProviderService.AgentModels
+            .FirstOrDefault(model => model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId))
+            ?.DisplayName ?? _settings.AgentModelId;
+
         AgentStatus.Text =
             $"Hold or tap {_settings.AgentHotkey} and say what you want done. Every press starts a brand new " +
-            $"Claude Code session in {folder} — it remembers nothing from the last one. The reply appears " +
-            "under \"Last transcript\" and is never pasted anywhere.";
+            $"{modelName} session at {AiProviderService.NormalizeAgentEffort(_settings.AgentEffort)} effort in " +
+            $"{folder} — it remembers nothing from the last one. The reply appears under \"Last transcript\" " +
+            "and is never pasted anywhere.";
     }
 
     // --- Microphone selection ---------------------------------------------
@@ -1351,6 +1377,17 @@ public partial class MainWindow : Window
             StringComparison.OrdinalIgnoreCase)
             ? string.Empty
             : agentFolder;
+        // Only read while they actually hold a choice. Both lists are empty for
+        // the moment before ApplySettingsToUi fills them, and reading them then
+        // would overwrite the saved choice with a fallback.
+        if (AgentModelCombo.SelectedItem is AiModelOption agentModel)
+        {
+            _settings.AgentModelId = agentModel.Id;
+        }
+        if (AgentEffortCombo.SelectedItem is string agentEffort)
+        {
+            _settings.AgentEffort = agentEffort;
+        }
         // The Windows-default entry is stored as empty; a disconnected saved mic
         // keeps its real name in the list, so its name (not "default") persists.
         if (MicCombo.SelectedItem is MicrophoneDevice mic)

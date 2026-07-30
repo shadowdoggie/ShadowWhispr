@@ -51,19 +51,52 @@ public sealed partial class AiProviderService
         ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "on"];
 
     /// <summary>
-    /// Agent mode is Sonnet 5 only. Its tool use is what the feature is for, and
-    /// the other models are neither priced nor tuned for running a whole task
-    /// from a single spoken sentence.
+    /// The default agent model: fast and cheap enough to be worth pressing a key
+    /// for, which is what a fresh install should get before anyone has thought
+    /// about it.
     /// </summary>
-    public const string AgentModelId = "claude-sonnet-5";
+    public const string DefaultAgentModelId = "claude-sonnet-5";
 
     /// <summary>
-    /// Agent mode always runs at medium effort, deliberately ignoring the
-    /// reasoning level chosen for dictation cleanup: that setting is about how
-    /// carefully a transcript is tidied, which says nothing about how hard a
-    /// desktop task should be thought through.
+    /// The default agent effort. Deliberately unrelated to the reasoning level
+    /// chosen for dictation cleanup: that setting is about how carefully a
+    /// transcript is tidied, which says nothing about how hard a desktop task
+    /// should be thought through.
     /// </summary>
-    public const string AgentEffort = "medium";
+    public const string DefaultAgentEffort = "medium";
+
+    /// <summary>
+    /// The effort levels agent mode offers, hardest last. Declared before
+    /// <see cref="AgentModels"/> on purpose: static initialisers run in
+    /// declaration order, so the other way round hands the models a null list.
+    /// </summary>
+    public static readonly string[] AgentEffortLevels = ["low", "medium", "high", "xhigh", "max"];
+
+    /// <summary>
+    /// The models agent mode may run. Kept to the two that are worth handing a
+    /// spoken task to, rather than the full Claude line-up: the rest are either
+    /// no better at tool use or not worth the wait for a one-sentence job.
+    /// </summary>
+    public static IReadOnlyList<AiModelOption> AgentModels { get; } =
+    [
+        new(Claude, DefaultAgentModelId, "Claude Sonnet 5", AgentEffortLevels, DefaultAgentEffort),
+        new(Claude, "claude-opus-5", "Claude Opus 5", AgentEffortLevels, DefaultAgentEffort)
+    ];
+
+    /// <summary>
+    /// Falls back to the default when a stored model is one this build no longer
+    /// offers, so an old settings file can never leave agent mode unrunnable.
+    /// </summary>
+    public static string NormalizeAgentModelId(string? modelId) =>
+        AgentModels.Any(model => string.Equals(model.Id, modelId, StringComparison.OrdinalIgnoreCase))
+            ? modelId!
+            : DefaultAgentModelId;
+
+    /// <summary>Falls back to the default for the same reason as the model.</summary>
+    public static string NormalizeAgentEffort(string? effort) =>
+        AgentEffortLevels.Contains(effort, StringComparer.OrdinalIgnoreCase)
+            ? effort!.ToLowerInvariant()
+            : DefaultAgentEffort;
 
     private readonly TimeSpan _commandTimeout;
 
@@ -313,12 +346,18 @@ public sealed partial class AiProviderService
     /// </summary>
     /// <param name="instruction">The transcribed instruction, spoken by the user.</param>
     /// <param name="workingDirectory">The folder the session starts in.</param>
+    /// <param name="modelId">The chosen agent model; anything unknown falls back to the default.</param>
+    /// <param name="effort">The chosen effort level; anything unknown falls back to the default.</param>
     public async Task<string> RunAgentAsync(
         string instruction,
         string workingDirectory,
+        string? modelId = null,
+        string? effort = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
+        var model = NormalizeAgentModelId(modelId);
+        var chosenEffort = NormalizeAgentEffort(effort);
 
         if (string.IsNullOrWhiteSpace(workingDirectory) || !Directory.Exists(workingDirectory))
         {
@@ -330,8 +369,8 @@ public sealed partial class AiProviderService
         var arguments = new List<string>
         {
             "-p",
-            "--model", AgentModelId,
-            "--effort", AgentEffort,
+            "--model", model,
+            "--effort", chosenEffort,
             // Voice gives no way to answer a permission prompt, so a session that
             // stopped to ask would simply hang until it timed out.
             //
@@ -348,7 +387,7 @@ public sealed partial class AiProviderService
         };
 
         AppLog.Write(
-            $"Agent run starting: model={AgentModelId}, effort={AgentEffort}, " +
+            $"Agent run starting: model={model}, effort={chosenEffort}, " +
             $"cwd={workingDirectory}, instruction length={instruction.Length}");
 
         var result = await RunAsync(

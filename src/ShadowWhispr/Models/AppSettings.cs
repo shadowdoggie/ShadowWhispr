@@ -134,6 +134,19 @@ public sealed class AppSettings
     public string AgentWorkingDirectory { get; set; } = string.Empty;
 
     /// <summary>
+    /// The model agent mode runs. Kept apart from <see cref="ModelId"/> because
+    /// carrying out a task and tidying a transcript are different jobs, and the
+    /// choice for one says nothing about the other.
+    /// </summary>
+    public string AgentModelId { get; set; } = "claude-sonnet-5";
+
+    /// <summary>
+    /// The effort level agent mode runs at, kept apart from
+    /// <see cref="Reasoning"/> for the same reason as the model.
+    /// </summary>
+    public string AgentEffort { get; set; } = "medium";
+
+    /// <summary>
     /// The working folder to actually use, with the empty default resolved.
     /// </summary>
     public string ResolveAgentWorkingDirectory() =>

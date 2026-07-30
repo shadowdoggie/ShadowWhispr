@@ -405,7 +405,7 @@
                                            Foreground="#E88A8A" />
                                 <TextBlock Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap"
                                            Foreground="{StaticResource MutedBrush}"
-                                           Text="Agent mode starts Claude Code with permission prompts bypassed, because there is no way to answer a prompt while dictating. It can read, change and delete files, and run commands, in the folder below and anywhere it is told to look. Always Claude Sonnet 5 at medium effort — your cleanup model and reasoning choice do not apply here." />
+                                           Text="Agent mode starts Claude Code with permission prompts bypassed, because there is no way to answer a prompt while dictating. It can read, change and delete files, and run commands, in the folder below and anywhere it is told to look. Its model and effort are chosen below and are separate from your cleanup settings." />
                             </StackPanel>
                         </Border>
 
@@ -413,11 +413,14 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="1*" />
                                 <ColumnDefinition Width="18" />
-                                <ColumnDefinition Width="1.8*" />
+                                <ColumnDefinition Width="1*" />
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="1*" />
                             </Grid.ColumnDefinitions>
 
                             <StackPanel>
@@ -432,7 +435,7 @@
                                         LostKeyboardFocus="HotkeyCaptureLostFocus" />
                             </StackPanel>
 
-                            <StackPanel Grid.Column="2">
+                            <StackPanel Grid.Column="2" Grid.ColumnSpan="3">
                                 <TextBlock Text="WORKING FOLDER" Style="{StaticResource FieldLabel}" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -447,7 +450,18 @@
                                 </Grid>
                             </StackPanel>
 
-                            <TextBlock x:Name="AgentStatus" Grid.Row="1" Grid.ColumnSpan="3" Margin="1,10,0,0"
+                            <StackPanel Grid.Row="1" Margin="0,16,0,0">
+                                <TextBlock Text="AGENT MODEL" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="AgentModelCombo" DisplayMemberPath="DisplayName"
+                                          SelectionChanged="AgentModelChanged" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,16,0,0">
+                                <TextBlock Text="AGENT EFFORT" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="AgentEffortCombo" SelectionChanged="AgentModelChanged" />
+                            </StackPanel>
+
+                            <TextBlock x:Name="AgentStatus" Grid.Row="2" Grid.ColumnSpan="5" Margin="1,14,0,0"
                                        Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
                         </Grid>
                     </StackPanel>
