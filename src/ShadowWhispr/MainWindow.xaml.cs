@@ -69,6 +69,19 @@ public partial class MainWindow : Window
     /// <summary>True while the current recording is running hands-free after a quick tap.</summary>
     private bool _tapLatched;
 
+    /// <summary>
+    /// The latest processing message, shown in the status pill whenever nothing
+    /// is being recorded. Held rather than written straight to the pill so that
+    /// a message raised during a recording is not simply lost.
+    /// </summary>
+    private string _workStatus = "Waiting for speech";
+
+    /// <summary>
+    /// True while the pill is reporting a failure, which must survive until the
+    /// next recording rather than being tidied away by the next state change.
+    /// </summary>
+    private bool _errorShown;
+
     /// <summary>True when the selected provider's CLI says it is already signed in.</summary>
     private bool _providerLoggedIn;
 
@@ -547,11 +560,11 @@ public partial class MainWindow : Window
         {
             _activeHotkeyKind = e.Kind;
             _tapLatched = false;
+            _errorShown = false;
             _tones.PlayPressed();
             _insertionTarget = _inserter.CaptureTarget();
             await _audio.StartAsync(_lifetime?.Token ?? default);
-            RunStatus.Text = ListeningLabel(e.Kind);
-            _tray.SetState(TrayState.Listening);
+            RefreshRunStatus();
         }
         catch (Exception ex)
         {
@@ -569,7 +582,7 @@ public partial class MainWindow : Window
         if (!_audio.IsRecording || e.Kind != _activeHotkeyKind) return;
         _tapLatched = true;
         AppLog.Write($"Tap dictation latched on ({e.Kind})");
-        RunStatus.Text = $"{ListeningLabel(e.Kind)} — press again to stop";
+        RefreshRunStatus();
     }
 
     private static string ListeningLabel(HotkeyKind kind) => kind switch
@@ -585,12 +598,20 @@ public partial class MainWindow : Window
         // Only the hotkey that started this recording may end it: a stray tap
         // release must not cut a hold dictation short, and the other way round.
         if (e.Kind != _activeHotkeyKind) return;
+
+        // Snapshot what this recording belongs to before the first await. The
+        // next press is free to land while StopAsync is still finishing, and it
+        // overwrites both of these - which used to hand this recording the next
+        // press's key and target, so a dictation could be carried out as an
+        // agent instruction, or pasted into whatever window was focused next.
+        var kind = _activeHotkeyKind;
+        var target = _insertionTarget;
         try
         {
             if (_tapLatched)
             {
                 _tapLatched = false;
-                AppLog.Write($"Tap dictation stopped ({e.Kind})");
+                AppLog.Write($"Tap dictation stopped ({kind})");
             }
             // Sounded before the recorder is closed, not after: stopping flushes
             // the recording to disk, and waiting for that put an audible lag
@@ -603,11 +624,16 @@ public partial class MainWindow : Window
                 return;
             }
 
-            _jobs.Enqueue(new DictationJob(recording, _activeHotkeyKind, _insertionTarget));
+            _jobs.Enqueue(new DictationJob(recording, kind, target));
             if (_jobs.Count > 1 || _busy)
             {
                 AppLog.Write($"Dictation queued behind the one being processed ({_jobs.Count} waiting)");
             }
+
+            // The pill still says "Listening" until this runs. Without it a
+            // recording queued behind a long agent run leaves the app claiming
+            // to be listening for as long as that run takes.
+            RefreshRunStatus();
         }
         catch (OperationCanceledException) { return; }
         catch (Exception ex)
@@ -634,14 +660,15 @@ public partial class MainWindow : Window
             {
                 var cancellationToken = _lifetime?.Token ?? default;
                 if (cancellationToken.IsCancellationRequested) break;
-                if (!_audio.IsRecording) _tray.SetState(TrayState.Working);
-                await ProcessJobAsync(_jobs.Dequeue(), cancellationToken);
+                var job = _jobs.Dequeue();
+                RefreshRunStatus();
+                await ProcessJobAsync(job, cancellationToken);
             }
         }
         finally
         {
             _busy = false;
-            if (!_audio.IsRecording && _parakeet.IsReady) _tray.SetState(TrayState.Ready);
+            RefreshRunStatus();
         }
     }
 
@@ -768,20 +795,59 @@ public partial class MainWindow : Window
         {
             AppLog.Write("Agent run failed", ex);
             TranscriptBox.Text = $"→ {instruction}\n\nAgent failed: {ex.Message}";
-            RunStatus.Text = "Agent failed";
+            _errorShown = true;
             _tray.SetState(TrayState.Error);
+            SetQueueStatus("Agent failed");
         }
     }
 
     /// <summary>
-    /// Shows processing progress in the status pill, with a queue count when
-    /// messages are waiting. While the user is recording, "Listening…" owns the
-    /// pill and progress updates stay out of its way.
+    /// Records the latest processing message and shows it. While the user is
+    /// recording, "Listening…" owns the pill and this waits its turn rather than
+    /// being dropped, so the message is still right once recording stops.
     /// </summary>
     private void SetQueueStatus(string text)
     {
-        if (_audio.IsRecording) return;
-        RunStatus.Text = _jobs.Count > 0 ? $"{text} · {_jobs.Count} waiting" : text;
+        _workStatus = text;
+        RefreshRunStatus();
+    }
+
+    /// <summary>
+    /// Derives the status pill and the tray icon from what is actually
+    /// happening, rather than from whichever event last had an opinion.
+    ///
+    /// Mixing the three keys used to strand both: a recording that finished
+    /// while an earlier job was still running went straight onto the queue, and
+    /// nothing then corrected a pill and tray icon still left on "Listening" by
+    /// the press. Every state change calls this instead of writing them itself.
+    /// </summary>
+    private void RefreshRunStatus()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(RefreshRunStatus);
+            return;
+        }
+
+        if (_audio.IsRecording)
+        {
+            RunStatus.Text = _tapLatched
+                ? $"{ListeningLabel(_activeHotkeyKind)} — press again to stop"
+                : ListeningLabel(_activeHotkeyKind);
+            _tray.SetState(TrayState.Listening);
+            return;
+        }
+
+        var waiting = _jobs.Count;
+        RunStatus.Text = waiting > 0 ? $"{_workStatus} · {waiting} waiting" : _workStatus;
+
+        // An error stays on screen until the next recording clears it; anything
+        // else would replace the only report the user gets with a cheerful
+        // "Ready" a moment later.
+        if (_errorShown) return;
+
+        if (_busy || waiting > 0) _tray.SetState(TrayState.Working);
+        else if (_parakeet.IsReady) _tray.SetState(TrayState.Ready);
     }
 
     private void ApplySettingsToUi()
@@ -1156,7 +1222,7 @@ public partial class MainWindow : Window
         var cancellationToken = refresh.Token;
         ModelCombo.IsEnabled = false;
         ReasoningCombo.IsEnabled = false;
-        RunStatus.Text = $"Checking {provider} models…";
+        SetQueueStatus($"Checking {provider} models…");
         try
         {
             var models = await _ai.DiscoverModelsAsync(provider, cancellationToken);
@@ -1164,7 +1230,7 @@ public partial class MainWindow : Window
             ModelCombo.ItemsSource = models;
             ModelCombo.SelectedItem = models.FirstOrDefault(model => model.Id == preferredId) ?? models.FirstOrDefault();
             UpdateReasoningChoices();
-            RunStatus.Text = models.Count == 0 ? $"{provider} is not available" : "Waiting for speech";
+            SetQueueStatus(models.Count == 0 ? $"{provider} is not available" : "Waiting for speech");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception ex)
@@ -1174,7 +1240,7 @@ public partial class MainWindow : Window
             ModelCombo.ItemsSource = Array.Empty<AiModelOption>();
             ReasoningCombo.ItemsSource = Array.Empty<string>();
             UpdateFastModeChoice(null);
-            RunStatus.Text = ex.Message;
+            SetQueueStatus(ex.Message);
         }
         finally
         {
@@ -1552,9 +1618,11 @@ public partial class MainWindow : Window
         AppLog.Write($"ERROR shown to user: {message}");
         Dispatcher.Invoke(() =>
         {
-            RunStatus.Text = "Error";
+            _errorShown = true;
+            _workStatus = "Error";
             TranscriptBox.Text = message;
             _tray.SetState(TrayState.Error);
+            RefreshRunStatus();
         });
     }
 

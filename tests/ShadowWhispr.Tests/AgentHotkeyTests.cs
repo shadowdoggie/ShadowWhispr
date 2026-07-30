@@ -110,6 +110,25 @@ public sealed class AgentHotkeyTests
         Assert.Equal(["pressed:Primary", "released:Primary"], events);
     }
 
+    /// <summary>
+    /// Letting go of the chord's modifier while its key stays down switches
+    /// straight from one binding to another. The old one must be reported
+    /// released before the new one is reported pressed, because the app reads
+    /// which key a finished recording belongs to when the release arrives.
+    /// </summary>
+    [Fact]
+    public void SwitchingStraightFromOneBindingToAnotherReleasesBeforePressing()
+    {
+        var (service, events) = Build(agentHotkey: "Ctrl + F13");
+
+        Down(service, VkCtrl);
+        Down(service, VkF13);
+        System.Threading.Thread.Sleep(250);
+        Up(service, VkCtrl);
+
+        Assert.Equal(["pressed:Agent", "released:Agent", "pressed:Primary"], events);
+    }
+
     [Fact]
     public void TheAgentFolderDefaultsToTheUserProfile()
     {
