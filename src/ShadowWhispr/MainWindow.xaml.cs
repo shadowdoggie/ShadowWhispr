@@ -82,6 +82,13 @@ public partial class MainWindow : Window
     /// </summary>
     private bool _errorShown;
 
+    /// <summary>
+    /// Cancels the agent run currently in flight, or null when none is. Held so
+    /// that pressing the agent key again stops what it is doing rather than
+    /// queueing a second instruction behind it.
+    /// </summary>
+    private CancellationTokenSource? _agentRun;
+
     /// <summary>True when the selected provider's CLI says it is already signed in.</summary>
     private bool _providerLoggedIn;
 
@@ -556,6 +563,25 @@ public partial class MainWindow : Window
         // processed; only an already-running recording blocks a new one.
         if (_audio.IsRecording) return;
         if (SetupBanner.Visibility == Visibility.Visible) return;
+
+        // The agent key doubles as a stop button. An agent run can take minutes
+        // and act on the machine the whole time, so the useful thing to do while
+        // one is going is to call it off - not to line up a second instruction
+        // behind it that cannot start until it finishes anyway.
+        if (e.Kind == HotkeyKind.Agent && _agentRun is { } running)
+        {
+            AppLog.Write("Agent run stopped by pressing the agent key again");
+            _tones.PlayReleased();
+            try
+            {
+                running.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // It finished on its own between the check and the cancel.
+            }
+            return;
+        }
         try
         {
             _activeHotkeyKind = e.Kind;
@@ -749,8 +775,13 @@ public partial class MainWindow : Window
     {
         var folder = _settings.ResolveAgentWorkingDirectory();
         AppLog.Write($"Agent instruction received ({instruction.Length} characters), folder '{folder}'");
-        TranscriptBox.Text = $"→ {instruction}\n\nWorking…";
+        TranscriptBox.Text = $"→ {instruction}\n\nWorking… (press the agent key again to stop)";
 
+        // Its own token, linked to the app's: pressing the agent key again
+        // cancels this run without touching anything else that is in flight.
+        using var runCancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _agentRun = runCancel;
+        var runToken = runCancel.Token;
         try
         {
             // Optional: tidy the spoken instruction before the agent acts on it.
@@ -768,10 +799,10 @@ public partial class MainWindow : Window
                         _settings.Reasoning,
                         _settings.CustomInstruction,
                         instruction,
-                        cancellationToken,
+                        runToken,
                         _settings.CodexFastMode);
                     AppLog.Write($"Agent instruction cleaned up with {_settings.Provider}");
-                    TranscriptBox.Text = $"→ {instruction}\n\nWorking…";
+                    TranscriptBox.Text = $"→ {instruction}\n\nWorking… (press the agent key again to stop)";
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -786,11 +817,20 @@ public partial class MainWindow : Window
                 _settings.AgentModelId,
                 _settings.AgentEffort,
                 _settings.AgentInstruction,
-                cancellationToken);
+                runToken);
             TranscriptBox.Text = $"→ {instruction}\n\n{reply}";
             SetQueueStatus("Agent finished");
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // The app closing cancels this too, and then there is nobody left to
+            // tell. Only a stop the user asked for gets reported.
+            if (cancellationToken.IsCancellationRequested) return;
+
+            AppLog.Write("Agent run cancelled by the user");
+            TranscriptBox.Text = $"→ {instruction}\n\nStopped. Anything it had already done stays done.";
+            SetQueueStatus("Agent stopped");
+        }
         catch (Exception ex)
         {
             AppLog.Write("Agent run failed", ex);
@@ -798,6 +838,10 @@ public partial class MainWindow : Window
             _errorShown = true;
             _tray.SetState(TrayState.Error);
             SetQueueStatus("Agent failed");
+        }
+        finally
+        {
+            _agentRun = null;
         }
     }
 
@@ -1006,8 +1050,8 @@ public partial class MainWindow : Window
         AgentStatus.Text =
             $"Hold or tap {_settings.AgentHotkey} and say what you want done. Every press starts a brand new " +
             $"{modelName} session at {AiProviderService.NormalizeAgentEffort(_settings.AgentEffort)} effort in " +
-            $"{folder} — it remembers nothing from the last one.{cleanup} The reply appears under " +
-            "\"Last transcript\" and is never pasted anywhere.";
+            $"{folder} — it remembers nothing from the last one.{cleanup} Press the key again while it is " +
+            "working to stop it. The reply appears under \"Last transcript\" and is never pasted anywhere.";
     }
 
     // --- Microphone selection ---------------------------------------------
