@@ -56,33 +56,6 @@ public sealed class TonePlayer : IDisposable
 
     public void PlayReleased() => Play(CreateFallingCue());
 
-    /// <summary>
-    /// Starting an agent dictation. Two notes at the same pitch rather than a
-    /// step up or down: handing a task to Claude Code and dictating text are
-    /// different enough that their cues should not be two versions of one sound,
-    /// and a flat double blip is unmistakable against a moving pair.
-    /// </summary>
-    public void PlayAgentPressed() => Play(CreateCue(volume: 0.17, 900, 900));
-
-    /// <summary>Ending an agent dictation: the same double blip, lower.</summary>
-    public void PlayAgentReleased() => Play(CreateCue(volume: 0.15, 540, 540));
-
-    /// <summary>
-    /// The cue for calling off an agent run. Three notes rather than two, lower
-    /// and walking further down: stopping the agent and finishing a dictation
-    /// are very different things, and a cue that merely resembled the other one
-    /// would leave you unsure which of the two you had just done.
-    /// </summary>
-    public void PlayCancelled() => Play(CreateCancelledCue());
-
-    /// <summary>
-    /// The cue for an agent run finishing on its own. Three notes walking up
-    /// where the stop cue walks down, and quieter than the rest: it arrives
-    /// unannounced, minutes after you last touched a key, so it should be enough
-    /// to notice and not enough to make you jump.
-    /// </summary>
-    public void PlayFinished() => Play(CreateFinishedCue());
-
     private void Play(byte[] samples)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -178,34 +151,27 @@ public sealed class TonePlayer : IDisposable
     /// <summary>Length of each of the two notes in a cue.</summary>
     private const double NoteSeconds = 0.075;
 
-    private static byte[] CreateRisingCue() => CreateCue(volume: 0.18, 620, 880);
+    private static byte[] CreateRisingCue() => CreateCue(firstFrequency: 620, secondFrequency: 880, volume: 0.18);
 
-    private static byte[] CreateFallingCue() => CreateCue(volume: 0.16, 700, 420);
-
-    private static byte[] CreateCancelledCue() => CreateCue(volume: 0.16, 520, 390, 290);
-
-    private static byte[] CreateFinishedCue() => CreateCue(volume: 0.10, 590, 740, 880);
+    private static byte[] CreateFallingCue() => CreateCue(firstFrequency: 700, secondFrequency: 420, volume: 0.16);
 
     /// <summary>
-    /// Builds a cue from separate steady notes, one after the other.
+    /// Builds a two-note cue: two separate steady notes, one after the other.
     ///
     /// Each note fades in and out on its own along a raised cosine, so the
     /// waveform reaches silence before the pitch changes. That is what keeps the
     /// cue click-free without sliding between the pitches — a slide turns the
-    /// beeps into a swooping sound nobody asked for.
+    /// pair of beeps into a swooping sound nobody asked for.
     /// </summary>
-    internal static byte[] CreateCue(double volume, params double[] frequencies)
+    private static byte[] CreateCue(double firstFrequency, double secondFrequency, double volume)
     {
         int noteCount = (int)(SampleRate * NoteSeconds);
         int leadCount = (int)(SampleRate * LeadSilenceSeconds);
         int tailCount = (int)(SampleRate * TailSilenceSeconds);
-        var result = new byte[(leadCount + (noteCount * frequencies.Length) + tailCount) * sizeof(short)];
+        var result = new byte[(leadCount + (noteCount * 2) + tailCount) * sizeof(short)];
 
-        for (int note = 0; note < frequencies.Length; note++)
-        {
-            WriteNote(result, leadCount + (noteCount * note), noteCount, frequencies[note], volume);
-        }
-
+        WriteNote(result, leadCount, noteCount, firstFrequency, volume);
+        WriteNote(result, leadCount + noteCount, noteCount, secondFrequency, volume);
         return result;
     }
 

@@ -1,8 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -25,15 +23,7 @@ public sealed partial class AiProviderService
     public const string Codex = "Codex";
     public const string Gemini = "Gemini";
 
-    /// <summary>
-    /// The two HTTP API providers. Unlike the three above they are not CLIs:
-    /// they are OpenAI-compatible chat-completions endpoints authenticated with
-    /// an API key the user pastes into settings.
-    /// </summary>
-    public const string DeepSeek = "DeepSeek";
-    public const string OpenRouter = "OpenRouter";
-
-    public static IReadOnlyList<string> Providers { get; } = [Claude, Codex, Gemini, DeepSeek, OpenRouter];
+    public static IReadOnlyList<string> Providers { get; } = [Claude, Codex, Gemini];
 
     private static readonly IReadOnlyList<AiModelOption> ClaudeModels =
     [
@@ -51,23 +41,6 @@ public sealed partial class AiProviderService
         new(Gemini, "gemini-3.1-pro", "Gemini 3.1 Pro", ["low", "high"], "high")
     ];
 
-    /// <summary>
-    /// The HTTP providers' model lists are fixed rather than discovered: each
-    /// API offers one model worth using for cleanup, and listing models would
-    /// need a network call (and a valid key) just to show a one-entry combo.
-    /// "off" means no thinking at all, which is what a transcript tidy usually
-    /// wants — it is the cheapest and fastest setting, not a degraded one.
-    /// </summary>
-    private static readonly IReadOnlyList<AiModelOption> DeepSeekModels =
-    [
-        new(DeepSeek, "deepseek-v4-flash", "DeepSeek V4 Flash", ["off", "low", "high", "max"], "off")
-    ];
-
-    private static readonly IReadOnlyList<AiModelOption> OpenRouterModels =
-    [
-        new(OpenRouter, "deepseek/deepseek-v4-flash-0731", "DeepSeek V4 Flash 0731", ["off", "low", "medium", "high"], "off")
-    ];
-
     /// <summary>The speed tier Codex's model cache lists for fast-capable models.</summary>
     private const string FastSpeedTier = "fast";
 
@@ -77,159 +50,18 @@ public sealed partial class AiProviderService
     private static readonly string[] ReasoningOrder =
         ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "on"];
 
-    /// <summary>
-    /// The default agent model, which a fresh install gets before anyone has
-    /// thought about the choice.
-    /// </summary>
-    public const string DefaultAgentModelId = "claude-opus-5";
-
-    /// <summary>
-    /// The default effort for the default model. Each model carries its own
-    /// default alongside the levels it offers, because they do not offer the
-    /// same ones — Opus on low is worth having where Sonnet on low is not.
-    ///
-    /// Deliberately unrelated to the reasoning level chosen for dictation
-    /// cleanup: that setting is about how carefully a transcript is tidied,
-    /// which says nothing about how hard a desktop task should be thought
-    /// through.
-    /// </summary>
-    public const string DefaultAgentEffort = "medium";
-
-    /// <summary>
-    /// The effort levels agent mode offers, hardest last. Declared before
-    /// <see cref="AgentModels"/> on purpose: static initialisers run in
-    /// declaration order, so the other way round hands the models a null list.
-    /// </summary>
-    public static readonly string[] AgentEffortLevels = ["low", "medium", "high", "xhigh", "max"];
-
-    /// <summary>
-    /// What Sonnet offers, which is everything but "low": at that level it is
-    /// not good enough at carrying out a spoken task to be worth offering, and a
-    /// setting that only ever disappoints is worse than no setting.
-    /// </summary>
-    private static readonly string[] SonnetAgentEffortLevels = ["medium", "high", "xhigh", "max"];
-
-    /// <summary>
-    /// The efforts the OpenCode CLI accepts as --variant for each DeepSeek V4
-    /// Flash route, taken from OpenCode's model registry: the direct DeepSeek
-    /// API offers a thinking toggle plus high/max ("off" here means no variant
-    /// is passed and thinking stays off), while OpenRouter spells the same knob
-    /// as low/high/max with no off position.
-    /// </summary>
-    private static readonly string[] DeepSeekAgentEffortLevels = ["off", "high", "max"];
-    private static readonly string[] OpenRouterAgentEffortLevels = ["low", "high", "max"];
-
-    /// <summary>
-    /// The models agent mode may run: the Claude models through the Claude CLI,
-    /// GPT through `codex exec`, and DeepSeek V4 Flash through the OpenCode CLI
-    /// (once via DeepSeek's own API, once via OpenRouter). The rest of each
-    /// line-up is left out as either no better at tool use or not worth the
-    /// wait for a one-sentence job.
-    /// </summary>
-    public static IReadOnlyList<AiModelOption> AgentModels { get; } =
-    [
-        new(Claude, DefaultAgentModelId, "Claude Opus 5", AgentEffortLevels, DefaultAgentEffort),
-        new(Claude, "claude-fable-5", "Claude Fable 5", AgentEffortLevels, DefaultAgentEffort),
-        new(Claude, "claude-sonnet-5", "Claude Sonnet 5", SonnetAgentEffortLevels, "medium"),
-        // The non-Claude CLI agent, run through `codex exec` rather than the
-        // Claude CLI. Its effort levels and its Fast tier are taken from what
-        // Codex itself reports for the model.
-        new(Codex, "gpt-5.6-luna", "GPT-5.6-Luna", AgentEffortLevels, DefaultAgentEffort, SupportsFastMode: true),
-        // The API-key agents. Neither DeepSeek nor OpenRouter ships an agent
-        // CLI, so these run through OpenCode's `opencode run`, which gives the
-        // model real tool use in the working folder. The API key pasted on the
-        // AI cleanup page is handed to OpenCode per run, so no OpenCode set-up
-        // is needed beyond installing it.
-        new(DeepSeek, "deepseek-v4-flash", "DeepSeek V4 Flash", DeepSeekAgentEffortLevels, "high"),
-        new(OpenRouter, "deepseek/deepseek-v4-flash-0731", "DeepSeek V4 Flash (OpenRouter)", OpenRouterAgentEffortLevels, "high")
-    ];
-
-    /// <summary>
-    /// Which CLI runs a given agent model. Agent mode was Claude-only to begin
-    /// with, so everything that branches on this exists to keep the Codex path
-    /// from inheriting Claude's flags.
-    /// </summary>
-    public static string GetAgentProvider(string? modelId) => GetAgentModel(modelId).Provider;
-
-    /// <summary>Whether the chosen agent model offers Codex's faster service tier.</summary>
-    public static bool AgentModelSupportsFastMode(string? modelId) => GetAgentModel(modelId).SupportsFastMode;
-
-    /// <summary>
-    /// Falls back to the default when a stored model is one this build no longer
-    /// offers, so an old settings file can never leave agent mode unrunnable.
-    /// </summary>
-    public static string NormalizeAgentModelId(string? modelId) =>
-        AgentModels.Any(model => string.Equals(model.Id, modelId, StringComparison.OrdinalIgnoreCase))
-            ? modelId!
-            : DefaultAgentModelId;
-
-    private static AiModelOption GetAgentModel(string? modelId) =>
-        AgentModels.First(model => model.Id == NormalizeAgentModelId(modelId));
-
-    /// <summary>The effort levels the given model offers.</summary>
-    public static IReadOnlyList<string> GetAgentEffortLevels(string? modelId) =>
-        GetAgentModel(modelId).ReasoningLevels;
-
-    /// <summary>
-    /// Falls back to the chosen model's own default when the stored effort is
-    /// one it does not offer — which is what a settings file written before
-    /// Sonnet dropped "low" contains, and what switching from Opus on low to
-    /// Sonnet asks for. The fallback is per model rather than shared, because a
-    /// shared one would be a level one of the two does not have.
-    /// </summary>
-    public static string NormalizeAgentEffort(string? modelId, string? effort)
-    {
-        var model = GetAgentModel(modelId);
-        return model.ReasoningLevels.Contains(effort, StringComparer.OrdinalIgnoreCase)
-            ? effort!.ToLowerInvariant()
-            : model.DefaultReasoningLevel ?? DefaultAgentEffort;
-    }
-
     private readonly TimeSpan _commandTimeout;
-
-    /// <summary>
-    /// Agent runs get their own, much longer limit: cleaning a transcript is one
-    /// model call, while carrying out a spoken task can mean many tool calls.
-    /// </summary>
-    private readonly TimeSpan _agentTimeout;
-
     private readonly string _isolatedWorkDirectory;
 
-    /// <summary>
-    /// Hands the service an API key for a given HTTP provider (DeepSeek,
-    /// OpenRouter). Set by the app to read from settings rather than passing
-    /// keys into the constructor, so the service always sees the key the user
-    /// pasted in most recently instead of a copy taken at start-up.
-    /// </summary>
-    public Func<string, string?>? ApiKeyResolver { get; set; }
-
-    /// <summary>
-    /// One shared client for every HTTP provider call, as HttpClient is meant to
-    /// be used. Its own timeout is only a backstop against a hang nobody asked
-    /// about: each request is actually cut off by <see cref="_commandTimeout"/>
-    /// through a linked CTS, the same way <see cref="RunAsync"/> cuts off a CLI.
-    /// </summary>
-    private static readonly HttpClient HttpApi = new() { Timeout = TimeSpan.FromMinutes(10) };
-
-    public AiProviderService(TimeSpan? commandTimeout = null, TimeSpan? agentTimeout = null)
+    public AiProviderService(TimeSpan? commandTimeout = null)
     {
         _commandTimeout = commandTimeout ?? TimeSpan.FromMinutes(5);
-        _agentTimeout = agentTimeout ?? TimeSpan.FromMinutes(20);
         _isolatedWorkDirectory = Path.Combine(Path.GetTempPath(), "ShadowWhispr", "ai-workspace");
     }
 
     public bool IsCliAvailable(string provider)
     {
-        var normalizedProvider = NormalizeProvider(provider);
-        if (IsHttpApiProvider(normalizedProvider))
-        {
-            // There is no CLI to look for: the API is always "installed", and
-            // whether it can be used is a question about the key, which is what
-            // GetLoginStatusAsync answers.
-            return true;
-        }
-
-        var command = GetCommand(normalizedProvider);
+        var command = GetCommand(provider);
         return FindOnPath(command) is not null;
     }
 
@@ -238,8 +70,6 @@ public sealed partial class AiProviderService
         Claude => "claude auth login --claudeai",
         Codex => "codex login",
         Gemini => "agy (opens OAuth onboarding when signed out)",
-        DeepSeek => "API key (platform.deepseek.com)",
-        OpenRouter => "API key (openrouter.ai/keys)",
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
 
@@ -253,16 +83,6 @@ public sealed partial class AiProviderService
         CancellationToken cancellationToken = default)
     {
         var normalizedProvider = NormalizeProvider(provider);
-        if (IsHttpApiProvider(normalizedProvider))
-        {
-            // For an API-key provider "signed in" simply means a key has been
-            // pasted in. No process is spawned and the key is never validated
-            // here: a wrong key surfaces as a clear HTTP error on first use.
-            return string.IsNullOrWhiteSpace(ApiKeyResolver?.Invoke(normalizedProvider))
-                ? ProviderLoginStatus.LoggedOut
-                : ProviderLoginStatus.LoggedIn;
-        }
-
         if (normalizedProvider == Gemini)
         {
             // agy has no status command: the only way to find out is to open its
@@ -352,15 +172,6 @@ public sealed partial class AiProviderService
     {
         EnsureIsolatedDirectories();
         var normalizedProvider = NormalizeProvider(provider);
-        if (IsHttpApiProvider(normalizedProvider))
-        {
-            // Nothing to open: there is no sign-in flow, only a key. Thrown
-            // rather than silently ignored so a UI path that wrongly offers a
-            // login button still tells the user what to actually do.
-            throw new AiProviderException(
-                $"{normalizedProvider} uses an API key instead of a login — paste it on the AI cleanup page.");
-        }
-
         var arguments = normalizedProvider switch
         {
             Claude => new[] { "auth", "login", "--claudeai" },
@@ -381,15 +192,6 @@ public sealed partial class AiProviderService
     {
         EnsureIsolatedDirectories();
         var normalizedProvider = NormalizeProvider(provider);
-        if (IsHttpApiProvider(normalizedProvider))
-        {
-            // "Logging out" of an API key is deleting the key, which lives in
-            // settings — same message as LoginAsync so both dead ends point at
-            // the one place that actually controls access.
-            throw new AiProviderException(
-                $"{normalizedProvider} uses an API key instead of a login — paste it on the AI cleanup page.");
-        }
-
         if (normalizedProvider == Gemini)
         {
             // Antigravity exposes sign-out as /logout inside its interactive CLI.
@@ -425,10 +227,6 @@ public sealed partial class AiProviderService
             Claude => ClaudeModels,
             Codex => await DiscoverCodexModelsAsync(cancellationToken),
             Gemini => await DiscoverGeminiModelsAsync(cancellationToken),
-            // Fixed lists: see the comment on DeepSeekModels for why nothing is
-            // asked over the network here.
-            DeepSeek => DeepSeekModels,
-            OpenRouter => OpenRouterModels,
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }
@@ -471,8 +269,6 @@ public sealed partial class AiProviderService
             Claude => await ProcessWithClaudeAsync(modelId, reasoning, prompt, cancellationToken),
             Codex => await ProcessWithCodexAsync(modelId, reasoning, prompt, fastMode, cancellationToken),
             Gemini => await ProcessWithGeminiAsync(modelId, reasoning, prompt, cancellationToken),
-            DeepSeek or OpenRouter =>
-                await ProcessWithHttpAsync(normalizedProvider, modelId, reasoning, prompt, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
 
@@ -482,388 +278,6 @@ public sealed partial class AiProviderService
         }
 
         return output.Trim();
-    }
-
-    /// <summary>
-    /// Hands a spoken instruction to a headless Claude Code session that is
-    /// allowed to act on this PC, and returns what it reports back.
-    ///
-    /// Every call is a brand new session: nothing is resumed, and with
-    /// <c>--no-session-persistence</c> nothing is written to disk either, so one
-    /// spoken sentence can never be coloured by the last one.
-    /// </summary>
-    /// <param name="instruction">The transcribed instruction, spoken by the user.</param>
-    /// <param name="workingDirectory">The folder the session starts in.</param>
-    /// <param name="modelId">The chosen agent model; anything unknown falls back to the default.</param>
-    /// <param name="effort">The chosen effort level; anything unknown falls back to the default.</param>
-    /// <param name="standingInstruction">
-    /// The user's own standing facts, added after ours. Theirs come last so that
-    /// what they wrote wins where the two disagree.
-    /// </param>
-    /// <param name="wantsSpokenReply">
-    /// Asks the session to add a <c>&lt;spoken&gt;</c> version of its reply for
-    /// reading out loud. Only requested when the user has spoken replies turned
-    /// on, so nobody else pays for the extra instruction or risks seeing the tag.
-    /// </param>
-    public async Task<string> RunAgentAsync(
-        string instruction,
-        string workingDirectory,
-        string? modelId = null,
-        string? effort = null,
-        string? standingInstruction = null,
-        bool wantsSpokenReply = false,
-        bool fastMode = false,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
-        var model = NormalizeAgentModelId(modelId);
-        var chosenEffort = NormalizeAgentEffort(model, effort);
-
-        if (string.IsNullOrWhiteSpace(workingDirectory) || !Directory.Exists(workingDirectory))
-        {
-            AppLog.Write($"Agent run refused: working folder does not exist ({workingDirectory})");
-            throw new AiProviderException(
-                $"The agent working folder does not exist: {workingDirectory}");
-        }
-
-        var systemPrompt = BuildAgentSystemPrompt(standingInstruction, wantsSpokenReply);
-
-        if (IsHttpApiProvider(GetAgentProvider(model)))
-        {
-            return await RunOpenCodeAgentAsync(
-                instruction,
-                workingDirectory,
-                GetAgentProvider(model),
-                model,
-                chosenEffort,
-                systemPrompt,
-                cancellationToken);
-        }
-
-        if (GetAgentProvider(model) == Codex)
-        {
-            return await RunCodexAgentAsync(
-                instruction,
-                workingDirectory,
-                model,
-                chosenEffort,
-                systemPrompt,
-                fastMode && AgentModelSupportsFastMode(model),
-                cancellationToken);
-        }
-
-        var arguments = new List<string>
-        {
-            "-p",
-            "--model", model,
-            "--effort", chosenEffort,
-            // Voice gives no way to answer a permission prompt, so a session that
-            // stopped to ask would simply hang until it timed out.
-            //
-            // Both flags are passed on purpose. --permission-mode sets the mode
-            // for the session, while --dangerously-skip-permissions is the one
-            // that does not depend on the user having accepted Claude Code's
-            // one-time bypass warning in an interactive session first - which a
-            // user who has only ever used ShadowWhispr never has.
-            "--permission-mode", "bypassPermissions",
-            "--dangerously-skip-permissions",
-            "--no-session-persistence",
-            "--output-format", "json",
-            "--append-system-prompt", systemPrompt
-        };
-
-        AppLog.Write(
-            $"Agent run starting: model={model}, effort={chosenEffort}, " +
-            $"spoken reply {(wantsSpokenReply ? "requested" : "not requested")}, " +
-            $"cwd={workingDirectory}, instruction length={instruction.Length}, " +
-            $"standing facts {(string.IsNullOrWhiteSpace(standingInstruction) ? "none" : $"{standingInstruction.Trim().Length} characters")}");
-
-        var result = await RunAsync(
-            GetCommand(Claude),
-            arguments,
-            instruction,
-            workingDirectory,
-            environment: null,
-            cancellationToken,
-            _agentTimeout);
-
-        EnsureSuccess(Claude, result);
-
-        string? text;
-        bool isError;
-        try
-        {
-            using var document = JsonDocument.Parse(result.StandardOutput);
-            var root = document.RootElement;
-            text = GetString(root, "result");
-            isError = root.TryGetProperty("is_error", out var errorFlag) &&
-                      errorFlag.ValueKind == JsonValueKind.True;
-        }
-        catch (JsonException exception)
-        {
-            AppLog.Write("Agent run returned unreadable JSON", exception);
-            throw new AiProviderException("Claude Code returned an unreadable response.", exception);
-        }
-
-        if (isError)
-        {
-            AppLog.Write($"Agent run reported a failure: {text ?? "(no detail)"}");
-            throw new AiProviderException(
-                string.IsNullOrWhiteSpace(text) ? "Claude Code reported an error." : text);
-        }
-
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            AppLog.Write("Agent run finished but returned no text");
-            throw new AiProviderException("Claude Code finished without saying anything.");
-        }
-
-        AppLog.Write($"Agent run finished, reply length={text.Length}");
-        return text.Trim();
-    }
-
-    /// <summary>
-    /// Runs one spoken instruction through `codex exec` instead of the Claude
-    /// CLI.
-    ///
-    /// This is a separate method rather than a few conditionals in
-    /// <see cref="RunAgentAsync"/> because almost nothing carries over: Codex
-    /// takes the effort and the service tier as config entries, streams JSONL
-    /// events rather than returning one JSON object, and has its own way of
-    /// being told not to stop and ask permission.
-    /// </summary>
-    private async Task<string> RunCodexAgentAsync(
-        string instruction,
-        string workingDirectory,
-        string model,
-        string effort,
-        string systemPrompt,
-        bool fastMode,
-        CancellationToken cancellationToken)
-    {
-        var arguments = new List<string>
-        {
-            "exec",
-            "--json",
-            "--color", "never",
-            "--skip-git-repo-check",
-            // The user's own Codex config is deliberately not read: agent mode's
-            // model, effort and tier are chosen in ShadowWhispr, and a config
-            // file that disagreed would silently win.
-            "--ignore-user-config",
-            // Unlike cleanup, which runs read-only in a scratch folder, an agent
-            // run exists to change things - so it gets the real folder and the
-            // ability to write in it. This matches what agent mode already does
-            // with Claude, and the warning on the agent page covers both.
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--cd", workingDirectory,
-            "--model", model,
-            "--config", $"model_reasoning_effort=\"{EscapeTomlString(effort)}\""
-        };
-
-        if (fastMode)
-        {
-            arguments.Add("--config");
-            arguments.Add($"service_tier=\"{PriorityServiceTier}\"");
-        }
-
-        AppLog.Write(
-            $"Codex agent run starting: model={model}, effort={effort}, " +
-            $"fast mode {(fastMode ? "on" : "off")}, cwd={workingDirectory}, " +
-            $"instruction length={instruction.Length}");
-
-        // Codex has no equivalent of Claude's --append-system-prompt, so the
-        // standing facts and the reply rules are prepended to the instruction.
-        // Marked off from what the user actually said, so the model can tell the
-        // two apart.
-        var prompt = $"""
-                      <how-to-reply>
-                      {systemPrompt}
-                      </how-to-reply>
-
-                      {instruction}
-                      """;
-
-        arguments.Add("-");
-        var result = await RunAsync(
-            GetCommand(Codex),
-            arguments,
-            prompt,
-            workingDirectory,
-            environment: null,
-            cancellationToken,
-            _agentTimeout);
-
-        EnsureSuccess(Codex, result);
-
-        // The reply is the last agent message in the event stream; earlier ones
-        // are progress commentary, and taking the first would report what it
-        // planned to do rather than what it did.
-        var text = string.Empty;
-        foreach (var line in SplitLines(result.StandardOutput))
-        {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-
-            try
-            {
-                using var document = JsonDocument.Parse(line);
-                var root = document.RootElement;
-                if (GetString(root, "type") != "item.completed" ||
-                    !root.TryGetProperty("item", out var item) ||
-                    GetString(item, "type") != "agent_message")
-                {
-                    continue;
-                }
-
-                var message = GetString(item, "text");
-                if (!string.IsNullOrWhiteSpace(message)) text = message;
-            }
-            catch (JsonException)
-            {
-                // Codex prints the occasional non-JSON line. Skipping it is
-                // right: the reply we want arrives as a well-formed event.
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            AppLog.Write("Codex agent run finished but returned no text");
-            throw new AiProviderException("Codex finished without saying anything.");
-        }
-
-        AppLog.Write($"Codex agent run finished, reply length={text.Length}");
-        return text.Trim();
-    }
-
-    /// <summary>The CLI that runs the API-key agent models. Not a provider of its own:
-    /// it is only the vehicle that gives DeepSeek and OpenRouter models tool use.</summary>
-    private const string OpenCodeCommand = "opencode";
-
-    /// <summary>
-    /// Runs one spoken instruction through `opencode run`, which is how the
-    /// DeepSeek and OpenRouter agent models get real tool use: neither has an
-    /// agent CLI of its own.
-    ///
-    /// Portability is deliberate: the API key pasted on the AI cleanup page is
-    /// handed to OpenCode through its provider environment variable per run, so
-    /// a user needs nothing beyond installing OpenCode — no `opencode auth`,
-    /// no config file. An existing OpenCode login also works and is left alone.
-    /// </summary>
-    private async Task<string> RunOpenCodeAgentAsync(
-        string instruction,
-        string workingDirectory,
-        string provider,
-        string model,
-        string effort,
-        string systemPrompt,
-        CancellationToken cancellationToken)
-    {
-        if (FindOnPath(OpenCodeCommand) is null)
-        {
-            AppLog.Write($"OpenCode agent run refused: the opencode CLI is not installed (model {model})");
-            throw new AiProviderException(
-                "This model runs through the OpenCode CLI, which is not installed. " +
-                "Install it with: npm install -g opencode-ai");
-        }
-
-        // OpenCode addresses models as provider/model; the OpenRouter ids
-        // already carry their own author segment, so the result has three parts.
-        var slug = provider == DeepSeek ? $"deepseek/{model}" : $"openrouter/{model}";
-
-        var arguments = new List<string>
-        {
-            "run",
-            "--model", slug,
-            // The OpenCode counterpart of Claude's bypassPermissions: voice
-            // gives no way to answer a permission prompt, so a run that stopped
-            // to ask would simply hang until it timed out.
-            "--auto"
-        };
-
-        // "off" is the DeepSeek thinking toggle left off, which is the model's
-        // default — so no variant is passed at all rather than inventing one
-        // OpenCode does not know.
-        if (!string.Equals(effort, "off", StringComparison.OrdinalIgnoreCase))
-        {
-            arguments.Add("--variant");
-            arguments.Add(effort);
-        }
-
-        // OpenCode has no per-run system prompt flag, so — same as the Codex
-        // path — the reply rules and standing facts are prepended to the
-        // instruction, marked off so the model can tell the two apart.
-        //
-        // Send this through stdin, not as a positional argument. On Windows
-        // OpenCode is normally an npm .cmd shim; passing a multiline prompt
-        // containing <tags> through that command line can lose the message to
-        // cmd.exe's parsing while still exiting successfully. OpenCode reads a
-        // missing positional message from stdin, which preserves it verbatim.
-        var prompt = $"""
-                     <how-to-reply>
-                     {systemPrompt}
-                     </how-to-reply>
-
-                     {instruction}
-                     """;
-
-        // The key pasted in ShadowWhispr, when there is one, travels as the
-        // provider's own environment variable, which OpenCode picks up without
-        // any set-up. Missing is not fatal here: the user may have signed into
-        // OpenCode themselves, and if neither is true OpenCode's own error
-        // comes back through EnsureSuccess and says a credential is missing.
-        var environment = new Dictionary<string, string?>();
-        var apiKey = ApiKeyResolver?.Invoke(provider)?.Trim();
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            environment[provider == DeepSeek ? "DEEPSEEK_API_KEY" : "OPENROUTER_API_KEY"] = apiKey;
-        }
-        else
-        {
-            AppLog.Write($"No {provider} API key in settings; relying on the user's own OpenCode auth");
-        }
-
-        AppLog.Write(
-            $"OpenCode agent run starting: model={slug}, effort={effort}, cwd={workingDirectory}, " +
-            $"instruction length={instruction.Length}, key {(environment.Count > 0 ? "from settings" : "not supplied")}");
-
-        var result = await RunAsync(
-            OpenCodeCommand,
-            arguments,
-            standardInput: prompt,
-            workingDirectory,
-            environment,
-            cancellationToken,
-            _agentTimeout);
-
-        EnsureSuccess(provider, result);
-
-        var text = ReadOpenCodeReply(result.StandardOutput);
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            AppLog.Write("OpenCode agent run finished but returned no text");
-            throw new AiProviderException("OpenCode finished without saying anything.");
-        }
-
-        AppLog.Write($"OpenCode agent run finished, reply length={text.Length}");
-        return text;
-    }
-
-    /// <summary>
-    /// The reply out of `opencode run`'s stdout, which wraps it in colour codes
-    /// and a "&gt; build · model" banner. Only leading banner lines are dropped:
-    /// a reply that itself starts a line with "&gt;" further down is left alone.
-    /// </summary>
-    private static string ReadOpenCodeReply(string standardOutput)
-    {
-        var lines = SplitLines(AnsiEscapeRegex().Replace(standardOutput, string.Empty)).ToList();
-        var start = 0;
-        while (start < lines.Count &&
-               (string.IsNullOrWhiteSpace(lines[start]) || lines[start].TrimStart().StartsWith('>')))
-        {
-            start++;
-        }
-
-        return string.Join('\n', lines.Skip(start)).Trim();
     }
 
     private async Task<IReadOnlyList<AiModelOption>> DiscoverCodexModelsAsync(CancellationToken cancellationToken)
@@ -1254,201 +668,16 @@ public sealed partial class AiProviderService
         return result.StandardOutput;
     }
 
-    /// <summary>
-    /// True for the providers that are HTTP APIs rather than CLIs. Everything
-    /// that would spawn a process — <see cref="GetCommand"/> included — must
-    /// check this first, so the CLI plumbing never sees them.
-    /// </summary>
-    private static bool IsHttpApiProvider(string provider) =>
-        provider is DeepSeek or OpenRouter;
-
-    /// <summary>
-    /// The key for an HTTP provider, or a message telling the user where to
-    /// paste one. Resolved per call rather than cached so a key added while the
-    /// app is running works immediately.
-    /// </summary>
-    private string ResolveApiKey(string provider)
-    {
-        var key = ApiKeyResolver?.Invoke(provider)?.Trim();
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            throw new AiProviderException($"Add your {provider} API key on the AI cleanup page.");
-        }
-
-        return key;
-    }
-
-    /// <summary>
-    /// One cleanup call against an OpenAI-compatible chat-completions API,
-    /// shared by DeepSeek and OpenRouter: the request shape and the reply shape
-    /// are the same, and only the endpoint, the headers and the spelling of the
-    /// reasoning knob differ.
-    /// </summary>
-    private async Task<string> ProcessWithHttpAsync(
-        string provider,
-        string modelId,
-        string? reasoning,
-        string prompt,
-        CancellationToken cancellationToken)
-    {
-        var apiKey = ResolveApiKey(provider);
-        var level = string.IsNullOrWhiteSpace(reasoning) ? "off" : reasoning.Trim().ToLowerInvariant();
-
-        var body = new Dictionary<string, object>
-        {
-            ["model"] = modelId,
-            ["messages"] = new[]
-            {
-                new Dictionary<string, string> { ["role"] = "user", ["content"] = prompt }
-            },
-            ["stream"] = false
-        };
-
-        if (provider == DeepSeek)
-        {
-            // DeepSeek splits the choice in two: `thinking` switches reasoning
-            // on or off, `reasoning_effort` says how hard. "off" is thinking
-            // disabled with no effort field at all — sending an effort alongside
-            // disabled thinking would be contradictory.
-            body["thinking"] = new Dictionary<string, string>
-            {
-                ["type"] = level == "off" ? "disabled" : "enabled"
-            };
-            if (level != "off")
-            {
-                body["reasoning_effort"] = level;
-            }
-        }
-        else
-        {
-            // OpenRouter folds both halves into one `reasoning` object instead.
-            body["reasoning"] = level == "off"
-                ? new Dictionary<string, object> { ["enabled"] = false }
-                : new Dictionary<string, object> { ["effort"] = level };
-        }
-
-        var endpoint = provider == DeepSeek
-            ? "https://api.deepseek.com/chat/completions"
-            : "https://openrouter.ai/api/v1/chat/completions";
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
-        {
-            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
-        };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        if (provider == OpenRouter)
-        {
-            // OpenRouter's optional attribution headers: they identify the app
-            // on openrouter.ai rankings and cost nothing to send.
-            request.Headers.Add("HTTP-Referer", "https://github.com/shadowdog-cat/ShadowWhispr");
-            request.Headers.Add("X-Title", "ShadowWhispr");
-        }
-
-        AppLog.Write($"{provider} cleanup starting: model={modelId}, reasoning={level}");
-
-        // Same timeout shape as RunAsync: the user's token plus the service's
-        // command timeout, so an API hang cannot outlive what a CLI would get.
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(_commandTimeout);
-
-        string responseBody;
-        System.Net.HttpStatusCode statusCode;
-        bool isSuccess;
-        try
-        {
-            using var response = await HttpApi.SendAsync(request, timeoutSource.Token);
-            statusCode = response.StatusCode;
-            isSuccess = response.IsSuccessStatusCode;
-            responseBody = await response.Content.ReadAsStringAsync(timeoutSource.Token);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            AppLog.Write($"{provider} API call timed out after {_commandTimeout.TotalMinutes:0.#} minutes");
-            throw new AiProviderException(
-                $"{provider} did not answer within {_commandTimeout.TotalMinutes:0.#} minutes.");
-        }
-        catch (HttpRequestException exception)
-        {
-            AppLog.Write($"{provider} API call failed: {exception.Message}");
-            throw new AiProviderException($"{provider} could not be reached: {exception.Message}", exception);
-        }
-
-        if (!isSuccess)
-        {
-            // The full body goes to the log (it never contains the key); the
-            // user gets the short version with whatever the API said went wrong.
-            AppLog.Write($"{provider} API returned HTTP {(int)statusCode}: {responseBody}");
-            var apiMessage = TryReadApiErrorMessage(responseBody);
-            throw new AiProviderException(string.IsNullOrWhiteSpace(apiMessage)
-                ? $"{provider} returned HTTP {(int)statusCode} ({statusCode})."
-                : $"{provider} returned HTTP {(int)statusCode}: {apiMessage}");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(responseBody);
-            if (document.RootElement.TryGetProperty("choices", out var choices) &&
-                choices.ValueKind == JsonValueKind.Array &&
-                choices.GetArrayLength() > 0 &&
-                choices[0].TryGetProperty("message", out var message))
-            {
-                var content = GetString(message, "content");
-                if (!string.IsNullOrWhiteSpace(content))
-                {
-                    AppLog.Write($"{provider} cleanup finished, reply length={content.Length}");
-                    return content;
-                }
-            }
-        }
-        catch (JsonException exception)
-        {
-            AppLog.Write($"{provider} returned unreadable JSON", exception);
-            throw new AiProviderException($"{provider} returned an unreadable response.", exception);
-        }
-
-        AppLog.Write($"{provider} response had no message content");
-        throw new AiProviderException($"{provider} did not return any text.");
-    }
-
-    /// <summary>
-    /// The API's own explanation of a failure (<c>error.message</c> in the JSON
-    /// body), or null when the body is not JSON or has no such field — in which
-    /// case the status code alone has to carry the message.
-    /// </summary>
-    private static string? TryReadApiErrorMessage(string body)
-    {
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(body);
-            return document.RootElement.ValueKind == JsonValueKind.Object &&
-                   document.RootElement.TryGetProperty("error", out var error) &&
-                   error.ValueKind == JsonValueKind.Object
-                ? GetString(error, "message")
-                : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
     private async Task<ProcessResult> RunAsync(
         string fileName,
         IReadOnlyCollection<string> arguments,
         string? standardInput,
         string workingDirectory,
         IReadOnlyDictionary<string, string?>? environment,
-        CancellationToken cancellationToken,
-        TimeSpan? timeout = null)
+        CancellationToken cancellationToken)
     {
-        var effectiveTimeout = timeout ?? _commandTimeout;
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(effectiveTimeout);
+        timeoutSource.CancelAfter(_commandTimeout);
 
         // Resolve to a full path rather than letting the OS search this
         // process's frozen PATH, so a CLI installed after ShadowWhispr started
@@ -1504,11 +733,6 @@ public sealed partial class AiProviderService
                 exception);
         }
 
-        // Immediately, and before it has had a chance to start children of its
-        // own: from here on Windows guarantees this process dies with
-        // ShadowWhispr, however ShadowWhispr goes.
-        ChildProcessJob.Shared.Assign(process);
-
         var outputTask = process.StandardOutput.ReadToEndAsync(timeoutSource.Token);
         var errorTask = process.StandardError.ReadToEndAsync(timeoutSource.Token);
         try
@@ -1523,8 +747,8 @@ public sealed partial class AiProviderService
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             TryKill(process);
-            AppLog.Write($"AI CLI timed out after {effectiveTimeout.TotalMinutes:0.#} minutes: {fileName}");
-            throw new AiProviderException($"{fileName} did not finish within {effectiveTimeout.TotalMinutes:0.#} minutes.");
+            AppLog.Write($"AI CLI timed out after {_commandTimeout.TotalMinutes:0.#} minutes: {fileName}");
+            throw new AiProviderException($"{fileName} did not finish within {_commandTimeout.TotalMinutes:0.#} minutes.");
         }
         catch
         {
@@ -1628,9 +852,6 @@ public sealed partial class AiProviderService
         Claude => "claude",
         Codex => "codex",
         Gemini => "agy",
-        // DeepSeek and OpenRouter deliberately fall through: they are HTTP APIs
-        // with no CLI, and every caller checks IsHttpApiProvider first, so
-        // reaching here with one of them is a bug worth throwing on.
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
 
@@ -1650,13 +871,9 @@ public sealed partial class AiProviderService
     {
         var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT")
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        // PATHEXT candidates first and the bare name last: npm installs both an
-        // extension-less Unix shell script and a .cmd shim under the same name,
-        // and Windows cannot execute the script (error 193). Preferring the
-        // bare name is what made opencode "not installed" despite being on PATH.
         var candidates = Path.HasExtension(command)
             ? [command]
-            : extensions.Select(extension => command + extension.ToLowerInvariant()).Append(command);
+            : extensions.Select(extension => command + extension.ToLowerInvariant()).Prepend(command);
         var candidateList = candidates.ToList();
 
         var directories = GetSearchDirectories();
@@ -1802,105 +1019,6 @@ public sealed partial class AiProviderService
 
     [GeneratedRegex(@"^(?<model>Gemini\s.+?)\s*\((?<effort>[^()]+)\)$", RegexOptions.IgnoreCase)]
     private static partial Regex ModelWithEffortRegex();
-
-    /// <summary>Terminal colour and cursor codes, which OpenCode prints even when piped.</summary>
-    [GeneratedRegex(@"\x1B\[[0-9;?]*[A-Za-z]")]
-    private static partial Regex AnsiEscapeRegex();
-
-    /// <summary>
-    /// Appended to Claude Code's own system prompt for agent runs. It only adds
-    /// the two things the session cannot work out for itself: that the
-    /// instruction was spoken (so speech-to-text slips are likely) and that the
-    /// reply is read on a card in ShadowWhispr rather than in a terminal.
-    /// </summary>
-    /// <summary>
-    /// Our own agent guidance with the user's standing facts appended, clearly
-    /// marked as theirs so the session can tell the two apart.
-    /// </summary>
-    private static string BuildAgentSystemPrompt(string? standingInstruction, bool wantsSpokenReply)
-    {
-        var prompt = wantsSpokenReply
-            ? $"{AgentSystemPrompt}\n\n{SpokenReplyPrompt}"
-            : AgentSystemPrompt;
-
-        return string.IsNullOrWhiteSpace(standingInstruction)
-            ? prompt
-            : $"""
-               {prompt}
-
-               The user has also given you these standing facts about themselves and their machine. Where they contradict anything above, follow them:
-               <standing-facts>
-               {standingInstruction.Trim()}
-               </standing-facts>
-               """;
-    }
-
-    /// <summary>
-    /// Asks for a second, spoken version of the reply. Written out loud by the
-    /// model rather than trimmed from the written one afterwards, because what
-    /// reads well and what sounds right are different texts: a file path and a
-    /// line number belong on the card and nowhere near a spoken sentence.
-    /// </summary>
-    private const string SpokenReplyPrompt =
-        "Your reply will also be read out loud. End it with a spoken version of itself wrapped in " +
-        "<spoken> tags, like <spoken>Done, the chime plays at the end of a run now.</spoken>. " +
-        "Keep it to one or two short sentences that sound like a person telling a friend what they just did. " +
-        "No file names, no paths, no line numbers, no version numbers, no lists, no symbols and no jargon - " +
-        "if it cannot be said out loud comfortably, leave it out. The tag must be the last thing in your reply.";
-
-    /// <summary>
-    /// The opening and closing markers of the spoken reply, kept next to the
-    /// prompt that asks for them so the two cannot drift apart.
-    /// </summary>
-    private const string SpokenOpen = "<spoken>";
-    private const string SpokenClose = "</spoken>";
-
-    /// <summary>
-    /// Splits an agent reply into what is shown and what is spoken.
-    ///
-    /// The tag is optional on purpose: models skip formatting instructions
-    /// occasionally, and a missing tag must not cost the user their reply. When
-    /// it is absent the first sentence is spoken instead, which is nearly always
-    /// the summary line anyway.
-    /// </summary>
-    public static (string Shown, string Spoken) SplitAgentReply(string reply)
-    {
-        if (string.IsNullOrWhiteSpace(reply)) return (reply, string.Empty);
-
-        var start = reply.LastIndexOf(SpokenOpen, StringComparison.OrdinalIgnoreCase);
-        if (start >= 0)
-        {
-            var from = start + SpokenOpen.Length;
-            var end = reply.IndexOf(SpokenClose, from, StringComparison.OrdinalIgnoreCase);
-            var spoken = end >= 0
-                ? reply[from..end]
-                : reply[from..]; // Truncated reply: take what is there.
-
-            var shown = reply.Remove(start, (end >= 0 ? end + SpokenClose.Length : reply.Length) - start);
-            return (shown.Trim(), spoken.Trim());
-        }
-
-        return (reply, FirstSentence(reply));
-    }
-
-    /// <summary>
-    /// The fallback spoken line: the first sentence, capped so that a reply
-    /// written as one long unpunctuated paragraph does not get read out in full.
-    /// </summary>
-    private static string FirstSentence(string text)
-    {
-        var trimmed = text.Trim();
-        var end = trimmed.IndexOfAny(['.', '!', '?']);
-        var sentence = end >= 0 ? trimmed[..(end + 1)] : trimmed;
-        return sentence.Length <= 240 ? sentence : sentence[..240];
-    }
-
-    private const string AgentSystemPrompt =
-        "This instruction was dictated out loud and transcribed automatically, so expect speech-to-text slips " +
-        "in names, paths and punctuation, and read it for what was meant rather than literally. " +
-        "There is no one at a keyboard to answer questions: carry the task out, and only if it is truly " +
-        "impossible say what stopped you. Your reply is shown on a small card in ShadowWhispr and cannot be " +
-        "replied to, so answer in at most a few plain sentences with no Markdown, code fences or file listings.";
 
     private const string BaseSystemPrompt =
         "You are a text post-processor. Never use tools, files, shell commands, web access, skills, agents, or external context. " +

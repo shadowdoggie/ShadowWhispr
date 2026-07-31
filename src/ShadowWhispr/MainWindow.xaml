@@ -1,8 +1,8 @@
 <Window x:Class="ShadowWhispr.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ShadowWhispr" Width="1180" Height="880" MinWidth="980" MinHeight="720"
-        WindowStartupLocation="CenterScreen"
+        Title="ShadowWhispr" Width="920" Height="900" MinWidth="760" MinHeight="680"
+        WindowStartupLocation="CenterScreen" WindowState="Maximized"
         TextOptions.TextFormattingMode="Display"
         TextOptions.TextRenderingMode="ClearType"
         UseLayoutRounding="True">
@@ -20,31 +20,6 @@
             <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,0,0,7" />
-        </Style>
-
-        <Style x:Key="PageTitle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="FontSize" Value="19" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Margin" Value="0,5,0,0" />
-        </Style>
-
-        <Style x:Key="PageBlurb" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Margin" Value="0,5,0,0" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-        </Style>
-
-        <!-- Every multi-line settings box. A minimum height it can never fall
-             below, so a page that runs out of room scrolls instead of squashing
-             the box down to a sliver. -->
-        <Style x:Key="EditorBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
-            <Setter Property="MinHeight" Value="120" />
-            <Setter Property="AcceptsReturn" Value="True" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="VerticalContentAlignment" Value="Top" />
-            <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
         </Style>
 
         <!-- The shadow lives on an empty border BEHIND the content. Putting the
@@ -99,29 +74,31 @@
             </Ellipse.Fill>
         </Ellipse>
 
-        <Grid Margin="26,20,26,20">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      PanningMode="VerticalOnly">
+            <Grid MaxWidth="980" Margin="34,28,34,30">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-            <!-- ===== Header ===== -->
-            <Grid Margin="2,0,2,16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+                <Grid Margin="2,0,2,26">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                <Grid VerticalAlignment="Center">
-                    <Border Width="44" Height="44" CornerRadius="12" Background="{StaticResource GoldBrush}">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="18" ShadowDepth="5" Opacity="0.28" Color="#DDB45F" />
-                        </Border.Effect>
-                    </Border>
-                    <Border Width="44" Height="44" CornerRadius="12">
+                    <Grid VerticalAlignment="Center">
+                        <Border Width="52" Height="52" CornerRadius="14" Background="{StaticResource GoldBrush}">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="18" ShadowDepth="5" Opacity="0.28" Color="#DDB45F" />
+                            </Border.Effect>
+                        </Border>
+                        <Border Width="52" Height="52" CornerRadius="14">
                         <Border.Background>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                 <GradientStop Color="{StaticResource GoldBright}" Offset="0" />
@@ -136,139 +113,83 @@
                                 <ColumnDefinition Width="4" />
                                 <ColumnDefinition Width="4" />
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Width="2" Height="8" CornerRadius="1" Background="#211A0D" />
-                            <Border Grid.Column="1" Width="2" Height="16" CornerRadius="1" Background="#211A0D" />
-                            <Border Grid.Column="2" Width="2" Height="23" CornerRadius="1" Background="#211A0D" />
-                            <Border Grid.Column="3" Width="2" Height="14" CornerRadius="1" Background="#211A0D" />
-                            <Border Grid.Column="4" Width="2" Height="6" CornerRadius="1" Background="#211A0D" />
+                            <Border Grid.Column="0" Width="2" Height="9" CornerRadius="1" Background="#211A0D" />
+                            <Border Grid.Column="1" Width="2" Height="19" CornerRadius="1" Background="#211A0D" />
+                            <Border Grid.Column="2" Width="2" Height="27" CornerRadius="1" Background="#211A0D" />
+                            <Border Grid.Column="3" Width="2" Height="16" CornerRadius="1" Background="#211A0D" />
+                            <Border Grid.Column="4" Width="2" Height="7" CornerRadius="1" Background="#211A0D" />
                         </Grid>
-                    </Border>
+                        </Border>
+                    </Grid>
+
+                    <StackPanel Grid.Column="1" Margin="15,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="SHADOWWHISPR" Style="{StaticResource Eyebrow}" />
+                        <TextBlock Text="Voice to text, without the friction" FontSize="21" FontWeight="SemiBold" Margin="0,4,0,0" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="PauseButton" Content="Pause dictation"
+                                Style="{StaticResource SecondaryButton}" Padding="14,7" MinHeight="0"
+                                FontSize="12" Margin="0,0,12,0" Click="PauseClicked"
+                                ToolTip="Hand your hotkeys back to other apps until you resume" />
+                        <Border Background="#C915191F" BorderBrush="{StaticResource LineBrush}"
+                                BorderThickness="1" CornerRadius="18" Padding="13,8" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <Grid Width="11" Height="11" Margin="0,0,9,0" VerticalAlignment="Center">
+                                    <Ellipse Fill="#2566D39A" Width="11" Height="11" />
+                                    <Ellipse x:Name="EngineDot" Width="7" Height="7" Fill="{StaticResource GoldBrush}" />
+                                </Grid>
+                                <TextBlock x:Name="EngineStatus" Text="Loading Parakeet…" FontSize="12"
+                                           FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
                 </Grid>
 
-                <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="SHADOWWHISPR" Style="{StaticResource Eyebrow}" />
-                    <TextBlock Text="Voice to text, without the friction" FontSize="18" FontWeight="SemiBold"
-                               Margin="0,2,0,0" />
-                </StackPanel>
+                <ContentControl Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,18">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.05*" />
+                            <ColumnDefinition Width="1" />
+                            <ColumnDefinition Width="1.15*" />
+                        </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="PauseButton" Content="Pause dictation"
-                            Style="{StaticResource SecondaryButton}" Padding="14,7" MinHeight="0"
-                            FontSize="12" Margin="0,0,12,0" Click="PauseClicked"
-                            ToolTip="Hand your hotkeys back to other apps until you resume" />
-                    <Border Background="#C915191F" BorderBrush="{StaticResource LineBrush}"
-                            BorderThickness="1" CornerRadius="18" Padding="13,8" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal">
-                            <Grid Width="11" Height="11" Margin="0,0,9,0" VerticalAlignment="Center">
-                                <Ellipse Fill="#2566D39A" Width="11" Height="11" />
-                                <Ellipse x:Name="EngineDot" Width="7" Height="7" Fill="{StaticResource GoldBrush}" />
-                            </Grid>
-                            <TextBlock x:Name="EngineStatus" Text="Loading Parakeet…" FontSize="12"
-                                       FontWeight="SemiBold" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource IconTile}">
+                                <Viewbox Width="21" Height="21">
+                                    <Path Data="M 10,2 C 7.8,2 6,3.8 6,6 L 6,11 C 6,13.2 7.8,15 10,15 C 12.2,15 14,13.2 14,11 L 14,6 C 14,3.8 12.2,2 10,2 M 3.5,10.5 C 3.5,14.1 6.4,17 10,17 C 13.6,17 16.5,14.1 16.5,10.5 M 10,17 L 10,20 M 7,20 L 13,20"
+                                          Stroke="{StaticResource GoldBrightBrush}" StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent" />
+                                </Viewbox>
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="13,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="VOICE CAPTURE" Style="{StaticResource Eyebrow}" />
+                                <TextBlock Text="Hold to speak, or tap to stay on" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" />
+                                <TextBlock Text="Your words appear in the selected app." Foreground="{StaticResource MutedBrush}"
+                                           FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
 
-            <!-- ===== Category tabs ===== -->
-            <Grid Grid.Row="1" Margin="0,0,0,16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+                        <Border Grid.Column="1" Width="1" Background="{StaticResource LineBrush}" Margin="24,0" />
 
-                <Border Background="#8A12161C" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
-                        CornerRadius="13" Padding="5" HorizontalAlignment="Left">
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton x:Name="NavDictation" Style="{StaticResource NavTab}" GroupName="Nav"
-                                     Content="Dictation" IsChecked="True" Checked="NavChanged" />
-                        <RadioButton x:Name="NavCleanup" Style="{StaticResource NavTab}" GroupName="Nav"
-                                     Content="AI cleanup" Checked="NavChanged" />
-                        <RadioButton x:Name="NavAgent" Style="{StaticResource NavTab}" GroupName="Nav"
-                                     Content="Agent mode" Checked="NavChanged" />
-                        <RadioButton x:Name="NavVoice" Style="{StaticResource NavTab}" GroupName="Nav"
-                                     Content="Spoken replies" Checked="NavChanged" />
-                        <RadioButton x:Name="NavApp" Style="{StaticResource NavTab}" GroupName="Nav"
-                                     Content="Settings" Margin="0" Checked="NavChanged" />
-                    </StackPanel>
-                </Border>
-
-                <Border x:Name="SaveStatusPill" Grid.Column="1" Background="#1810141A"
-                        BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="14"
-                        Padding="13,7" VerticalAlignment="Center" Margin="12,0,0,0">
-                    <StackPanel Orientation="Horizontal">
-                        <Ellipse x:Name="SaveDot" Width="9" Height="9" Margin="0,0,8,0"
-                                 VerticalAlignment="Center" Fill="{StaticResource MutedBrush}" />
-                        <TextBlock x:Name="SaveStatus" Text="Settings save automatically"
-                                   Foreground="{StaticResource MutedBrush}" FontSize="12" FontWeight="SemiBold"
-                                   VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="240" />
-                    </StackPanel>
-                </Border>
-            </Grid>
-
-            <!-- ===== Pages (exactly one visible) =====
-                 Each page is a scroll viewer whose content is forced to at least
-                 the viewport height. At a normal window size that makes the star
-                 rows fill the page and no scrollbar ever appears; on a small
-                 screen the content keeps its minimum sizes and scrolls instead of
-                 collapsing, so nothing is ever unreachable. -->
-            <Grid Grid.Row="2">
-
-                <!-- Dictation -->
-                <ContentControl x:Name="PageDictation" Style="{StaticResource Card}">
-                    <ScrollViewer x:Name="ScrollDictation" VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0">
-                        <Grid MinHeight="{Binding ViewportHeight, ElementName=ScrollDictation}">
+                        <Grid Grid.Column="2">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
-
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Border Style="{StaticResource IconTile}">
-                                    <Viewbox Width="21" Height="21">
-                                        <Path Data="M 10,2 C 7.8,2 6,3.8 6,6 L 6,11 C 6,13.2 7.8,15 10,15 C 12.2,15 14,13.2 14,11 L 14,6 C 14,3.8 12.2,2 10,2 M 3.5,10.5 C 3.5,14.1 6.4,17 10,17 C 13.6,17 16.5,14.1 16.5,10.5 M 10,17 L 10,20 M 7,20 L 13,20"
-                                              Stroke="{StaticResource GoldBrightBrush}" StrokeThickness="1.6"
-                                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent" />
-                                    </Viewbox>
-                                </Border>
-                                <StackPanel Grid.Column="1" Margin="13,0,0,0" VerticalAlignment="Center">
-                                    <TextBlock Text="VOICE CAPTURE" Style="{StaticResource Eyebrow}" />
-                                    <TextBlock Text="Hold to speak, or tap to stay on" Style="{StaticResource PageTitle}" />
-                                    <TextBlock Style="{StaticResource PageBlurb}"
-                                               Text="Your words appear in whichever app you had selected." />
-                                </StackPanel>
-                            </Grid>
-
-                            <Border Grid.Row="1" Height="1" Background="{StaticResource LineBrush}" Margin="0,20,0,20" />
-
-                            <Grid Grid.Row="2">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="20" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="20" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
                                 <TextBlock Text="DICTATION KEY — WITH AI CLEANUP" Style="{StaticResource FieldLabel}" />
-                                <TextBlock Grid.Column="2" Text="DICTATION KEY — RAW TEXT, NO AI"
-                                           Style="{StaticResource FieldLabel}" />
-                                <TextBlock Grid.Column="4" Text="MICROPHONE" Style="{StaticResource FieldLabel}" />
-
-                                <Button x:Name="HotkeyCaptureButton" Grid.Row="1"
+                                <Button x:Name="HotkeyCaptureButton"
                                         Content="Right Ctrl"
                                         Style="{StaticResource SecondaryButton}"
                                         HorizontalContentAlignment="Left"
@@ -276,7 +197,10 @@
                                         PreviewKeyDown="HotkeyCaptureKeyDown"
                                         PreviewKeyUp="HotkeyCaptureKeyUp"
                                         LostKeyboardFocus="HotkeyCaptureLostFocus" />
-                                <Button x:Name="RawHotkeyCaptureButton" Grid.Row="1" Grid.Column="2"
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="DICTATION KEY — RAW TEXT, NO AI" Style="{StaticResource FieldLabel}" />
+                                <Button x:Name="RawHotkeyCaptureButton"
                                         Content="Not set"
                                         Style="{StaticResource SecondaryButton}"
                                         HorizontalContentAlignment="Left"
@@ -284,116 +208,120 @@
                                         PreviewKeyDown="HotkeyCaptureKeyDown"
                                         PreviewKeyUp="HotkeyCaptureKeyUp"
                                         LostKeyboardFocus="HotkeyCaptureLostFocus" />
-                                <ComboBox x:Name="MicCombo" Grid.Row="1" Grid.Column="4" DisplayMemberPath="Name"
+                            </StackPanel>
+                            <TextBlock x:Name="HotkeyHint" Grid.Row="1" Grid.ColumnSpan="3" Margin="1,9,0,0"
+                                       Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap"
+                                       Text="Hold a key while you speak, or tap it quickly to keep recording hands-free until you press it again. Click a field, then press the key you want. Delete clears the optional hotkey; Escape cancels." />
+                            <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Margin="0,16,0,0">
+                                <TextBlock Text="MICROPHONE" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="MicCombo" DisplayMemberPath="Name"
                                           DropDownOpened="MicComboOpened" SelectionChanged="MicChanged" />
-
-                                <TextBlock x:Name="HotkeyHint" Grid.Row="2" Grid.ColumnSpan="5" Margin="1,12,0,0"
-                                           Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap"
-                                           Text="Hold a key while you speak, or tap it quickly to keep recording hands-free until you press it again. Click a field, then press the key you want. Delete clears the optional hotkey; Escape cancels." />
-                            </Grid>
-
-                            <Border Grid.Row="3" Margin="0,20,0,0"
-                                    Background="#141A1E14" BorderBrush="{StaticResource LineBrush}"
-                                    BorderThickness="1" CornerRadius="11" Padding="15,12">
-                                <StackPanel Orientation="Horizontal">
-                                    <Border Width="26" Height="26" CornerRadius="13" Background="#1C66D39A"
-                                            Margin="0,0,11,0" VerticalAlignment="Center">
-                                        <TextBlock Text="✓" Foreground="{StaticResource SuccessBrush}" FontSize="13"
-                                                   FontWeight="Bold" HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center" />
-                                    </Border>
-                                    <TextBlock Text="Speech is transcribed on this PC, and the audio is deleted immediately afterwards."
-                                               Foreground="{StaticResource MutedBrush}" FontSize="12.5"
-                                               VerticalAlignment="Center" TextWrapping="Wrap" />
-                                </StackPanel>
-                            </Border>
+                            </StackPanel>
                         </Grid>
-                    </ScrollViewer>
+                    </Grid>
                 </ContentControl>
 
-                <!-- AI cleanup -->
-                <ContentControl x:Name="PageCleanup" Style="{StaticResource Card}" Visibility="Collapsed">
-                    <ScrollViewer x:Name="ScrollCleanup" VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0">
-                        <Grid MinHeight="{Binding ViewportHeight, ElementName=ScrollCleanup}">
+                <ContentControl Grid.Row="2" Style="{StaticResource Card}" Margin="0,0,0,18">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="AI CLEANUP" Style="{StaticResource Eyebrow}" />
+                                <TextBlock Text="Make every transcript ready to use" FontSize="19" FontWeight="SemiBold" Margin="0,5,0,0" />
+                                <TextBlock Text="Polish punctuation and formatting with your chosen AI provider."
+                                           Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,5,0,0" />
+                            </StackPanel>
+                            <CheckBox x:Name="AiEnabledCheck" Grid.Column="1" Content="Enabled" FontWeight="SemiBold"
+                                      VerticalAlignment="Center" Checked="AiToggleChanged" Unchecked="AiToggleChanged" />
+                        </Grid>
+
+                        <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,22,0,22" />
+
+                        <Border Background="#14DDB45F" BorderBrush="#3ADDB45F" BorderThickness="1"
+                                CornerRadius="12" Padding="16,13" Margin="0,0,0,22">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <TextBlock Text="★" Foreground="{StaticResource GoldBrush}" FontSize="12"
+                                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBlock Text="RECOMMENDED MODELS FOR THE BEST EXPERIENCE"
+                                               Style="{StaticResource Eyebrow}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <WrapPanel>
+                                    <Border Background="#12FFFFFF" BorderBrush="#33DDB45F" BorderThickness="1"
+                                            CornerRadius="8" Padding="12,7" Margin="0,0,10,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Ellipse Width="6" Height="6" Fill="{StaticResource GoldBrush}"
+                                                     Margin="0,0,9,0" VerticalAlignment="Center" />
+                                            <TextBlock FontSize="12.5" VerticalAlignment="Center">
+                                                <Run Text="GPT 5.6 Sol" FontWeight="SemiBold" />
+                                                <Run Text="  ·  medium reasoning" Foreground="{StaticResource MutedBrush}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#12FFFFFF" BorderBrush="#33DDB45F" BorderThickness="1"
+                                            CornerRadius="8" Padding="12,7" Margin="0,0,10,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Ellipse Width="6" Height="6" Fill="{StaticResource GoldBrush}"
+                                                     Margin="0,0,9,0" VerticalAlignment="Center" />
+                                            <TextBlock Text="Gemini 3.6 Flash" FontSize="12.5" FontWeight="SemiBold"
+                                                       VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#12FFFFFF" BorderBrush="#33DDB45F" BorderThickness="1"
+                                            CornerRadius="8" Padding="12,7" Margin="0,0,10,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Ellipse Width="6" Height="6" Fill="{StaticResource GoldBrush}"
+                                                     Margin="0,0,9,0" VerticalAlignment="Center" />
+                                            <TextBlock Text="Claude Opus" FontSize="12.5" FontWeight="SemiBold"
+                                                       VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Grid x:Name="AiOptions">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1.15*" />
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="1.55*" />
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="1*" />
+                            </Grid.ColumnDefinitions>
 
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="AI CLEANUP" Style="{StaticResource Eyebrow}" />
-                                    <TextBlock Text="Make every transcript ready to use" Style="{StaticResource PageTitle}" />
-                                    <TextBlock Style="{StaticResource PageBlurb}"
-                                               Text="Polish punctuation and formatting with your chosen AI provider." />
-                                </StackPanel>
-                                <CheckBox x:Name="AiEnabledCheck" Grid.Column="1" Content="Enabled" FontWeight="SemiBold"
-                                          VerticalAlignment="Center" Checked="AiToggleChanged" Unchecked="AiToggleChanged" />
-                            </Grid>
-
-                            <Border Grid.Row="1" Height="1" Background="{StaticResource LineBrush}" Margin="0,20,0,20" />
-
-                            <Grid x:Name="AiOptions" Grid.Row="2">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="*" />
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="1.15*" />
-                                    <ColumnDefinition Width="18" />
-                                    <ColumnDefinition Width="1.55*" />
-                                    <ColumnDefinition Width="18" />
-                                    <ColumnDefinition Width="1*" />
-                                </Grid.ColumnDefinitions>
-
+                            <StackPanel>
                                 <TextBlock Text="PROVIDER" Style="{StaticResource FieldLabel}" />
-                                <TextBlock Grid.Column="2" Text="MODEL" Style="{StaticResource FieldLabel}" />
-                                <TextBlock Grid.Column="4" Text="REASONING" Style="{StaticResource FieldLabel}" />
-
-                                <ComboBox x:Name="ProviderCombo" Grid.Row="1" SelectionChanged="ProviderChanged">
+                                <ComboBox x:Name="ProviderCombo" SelectionChanged="ProviderChanged">
                                     <ComboBoxItem Content="Claude" />
                                     <ComboBoxItem Content="Codex" />
                                     <ComboBoxItem Content="Gemini" />
-                                    <ComboBoxItem Content="DeepSeek" />
-                                    <ComboBoxItem Content="OpenRouter" />
                                 </ComboBox>
-                                <ComboBox x:Name="ModelCombo" Grid.Row="1" Grid.Column="2"
-                                          DisplayMemberPath="DisplayName" SelectionChanged="ModelChanged" />
-                                <ComboBox x:Name="ReasoningCombo" Grid.Row="1" Grid.Column="4"
-                                          SelectionChanged="SettingsChanged" />
-
-                                <StackPanel Grid.Row="2" Margin="0,12,0,0">
-                                    <StackPanel x:Name="LoginButtonsPanel" Orientation="Horizontal">
-                                        <Button x:Name="LoginButton" Content="Login" Padding="13,6" MinHeight="32"
-                                                FontSize="12" Click="LoginClicked" />
-                                        <Button x:Name="LogoutButton" Content="Logout" Style="{StaticResource SecondaryButton}"
-                                                Padding="13,6" MinHeight="32" Margin="8,0,0,0" FontSize="12"
-                                                Click="LogoutClicked" />
-                                    </StackPanel>
-                                    <!-- Shown instead of the login buttons for the providers that take a
-                                         pasted API key (DeepSeek, OpenRouter) rather than a CLI sign-in. -->
-                                    <StackPanel x:Name="ApiKeyPanel" Visibility="Collapsed" MaxWidth="420"
-                                                HorizontalAlignment="Left">
-                                        <TextBlock x:Name="ApiKeyLabel" Text="API KEY" Style="{StaticResource FieldLabel}" />
-                                        <PasswordBox x:Name="CleanupApiKeyBox" PasswordChanged="CleanupApiKeyChanged" />
-                                    </StackPanel>
-                                    <TextBlock x:Name="AuthStatus" Text="Checking login…" Margin="1,8,0,0"
-                                               Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <Button x:Name="LoginButton" Content="Login" Padding="13,6" MinHeight="32" FontSize="12"
+                                            Click="LoginClicked" />
+                                    <Button x:Name="LogoutButton" Content="Logout" Style="{StaticResource SecondaryButton}"
+                                            Padding="13,6" MinHeight="32" Margin="8,0,0,0" FontSize="12"
+                                            Click="LogoutClicked" />
                                 </StackPanel>
+                                <TextBlock x:Name="AuthStatus" Text="Checking login…" Margin="1,8,0,0"
+                                           Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="MODEL" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="ModelCombo" DisplayMemberPath="DisplayName" SelectionChanged="ModelChanged" />
 
                                 <!-- Only shown for models that actually offer Codex's fast speed tier. -->
-                                <Border x:Name="FastModePanel" Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="3"
-                                        Visibility="Collapsed" VerticalAlignment="Top" Margin="0,12,0,0"
+                                <Border x:Name="FastModePanel" Visibility="Collapsed"
                                         Background="#12FFFFFF" BorderBrush="#33DDB45F" BorderThickness="1"
-                                        CornerRadius="8" Padding="12,9">
+                                        CornerRadius="8" Padding="12,9" Margin="0,12,0,0">
                                     <StackPanel>
                                         <CheckBox x:Name="FastModeCheck" Content="Fast mode"
                                                   FontWeight="SemiBold" Checked="SettingsChanged"
@@ -403,339 +331,137 @@
                                                    Text="About 1.5x faster replies from Codex. It uses up your Codex usage allowance quicker than normal speed, so leave it off unless you want the extra speed." />
                                     </StackPanel>
                                 </Border>
+                            </StackPanel>
 
-                                <Grid Grid.Row="3" Grid.ColumnSpan="5" Margin="0,20,0,0">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="*" />
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Text="CUSTOM CLEANUP INSTRUCTION" Style="{StaticResource FieldLabel}" />
-                                    <TextBox x:Name="InstructionBox" Grid.Row="1" Style="{StaticResource EditorBox}"
-                                             FontSize="15" TextChanged="SettingsChanged" />
-                                </Grid>
-                            </Grid>
-                        </Grid>
-                    </ScrollViewer>
-                </ContentControl>
+                            <StackPanel Grid.Column="4">
+                                <TextBlock Text="REASONING" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="ReasoningCombo" SelectionChanged="SettingsChanged" />
+                            </StackPanel>
 
-                <!-- Agent mode -->
-                <ContentControl x:Name="PageAgent" Style="{StaticResource Card}" Visibility="Collapsed">
-                    <ScrollViewer x:Name="ScrollAgent" VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0">
-                        <Grid MinHeight="{Binding ViewportHeight, ElementName=ScrollAgent}">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="AGENT MODE" Style="{StaticResource Eyebrow}" />
-                                    <TextBlock Text="Tell Claude Code to do things on this PC" Style="{StaticResource PageTitle}" />
-                                    <TextBlock Style="{StaticResource PageBlurb}"
-                                               Text="Speak an instruction and a fresh headless agent session carries it out — open a website, sort some files, run a command. Claude models run through Claude Code, GPT through Codex, and DeepSeek V4 Flash through the OpenCode CLI." />
-                                </StackPanel>
-                                <CheckBox x:Name="AgentModeCheck" Grid.Column="1" Content="Enabled" FontWeight="SemiBold"
-                                          VerticalAlignment="Center" Checked="AgentModeToggled" Unchecked="AgentModeToggled" />
-                            </Grid>
-
-                            <Border Grid.Row="1" Background="#14DF4A4A" BorderBrush="#3ADF4A4A" BorderThickness="1"
-                                    CornerRadius="11" Padding="15,11" Margin="0,18,0,18">
-                                <StackPanel>
-                                    <TextBlock Text="THIS RUNS WITHOUT ASKING PERMISSION" Style="{StaticResource Eyebrow}"
-                                               Foreground="#E88A8A" />
-                                    <TextBlock Margin="0,7,0,0" FontSize="11.5" TextWrapping="Wrap"
-                                               Foreground="{StaticResource MutedBrush}"
-                                               Text="Agent mode starts the chosen model's agent CLI with permission prompts bypassed, because there is no way to answer a prompt while dictating. It can read, change and delete files, and run commands, in the folder below and anywhere it is told to look." />
-                                </StackPanel>
-                            </Border>
-
-                            <Grid x:Name="AgentOptions" Grid.Row="2">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="*" />
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="1*" />
-                                    <ColumnDefinition Width="18" />
-                                    <ColumnDefinition Width="1*" />
-                                    <ColumnDefinition Width="18" />
-                                    <ColumnDefinition Width="1*" />
-                                </Grid.ColumnDefinitions>
-
-                                <!-- Labels and controls sit in separate rows rather
-                                     than in a StackPanel each, so every control on
-                                     a row shares that row's height. Stacking them
-                                     let each work its own height out, and the key
-                                     button ended up shorter than the folder box
-                                     beside it. -->
-                                <TextBlock Text="AGENT KEY — SEND TO THE AGENT" Style="{StaticResource FieldLabel}" />
-                                <TextBlock Grid.Column="2" Text="ABORT KEY — STOP THE NEWEST RUN"
-                                           Style="{StaticResource FieldLabel}" />
-                                <TextBlock Grid.Column="4" Text="WORKING FOLDER" Style="{StaticResource FieldLabel}" />
-
-                                <Button x:Name="AgentHotkeyCaptureButton" Grid.Row="1"
-                                        Content="Not set"
-                                        Style="{StaticResource SecondaryButton}"
-                                        HorizontalContentAlignment="Left"
-                                        PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
-                                        PreviewKeyDown="HotkeyCaptureKeyDown"
-                                        PreviewKeyUp="HotkeyCaptureKeyUp"
-                                        LostKeyboardFocus="HotkeyCaptureLostFocus" />
-                                <Button x:Name="AgentAbortHotkeyCaptureButton" Grid.Row="1" Grid.Column="2"
-                                        Content="Not set"
-                                        Style="{StaticResource SecondaryButton}"
-                                        HorizontalContentAlignment="Left"
-                                        ToolTip="Each press stops the agent session that started most recently, so pressing it repeatedly works back through everything that is running. It also stops a reply that is being read out loud."
-                                        PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
-                                        PreviewKeyDown="HotkeyCaptureKeyDown"
-                                        PreviewKeyUp="HotkeyCaptureKeyUp"
-                                        LostKeyboardFocus="HotkeyCaptureLostFocus" />
-                                <Grid Grid.Row="1" Grid.Column="4">
+                            <StackPanel Grid.Row="1" Grid.ColumnSpan="5" Margin="0,24,0,0">
+                                <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="AgentFolderBox" VerticalContentAlignment="Center"
+                                    <TextBlock Text="CUSTOM CLEANUP INSTRUCTION" Style="{StaticResource FieldLabel}" Margin="0" />
+                                    <TextBlock Grid.Column="1" Text="Drag the handle to resize" Foreground="{StaticResource MutedBrush}"
+                                               FontSize="11" VerticalAlignment="Center" />
+                                </Grid>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="11" />
+                                    </Grid.RowDefinitions>
+                                    <TextBox x:Name="InstructionBox" Height="360" MinHeight="60" MaxHeight="360"
+                                             FontSize="16"
+                                             AcceptsReturn="True" TextWrapping="Wrap"
+                                             VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"
                                              TextChanged="SettingsChanged" />
-                                    <Button Grid.Column="1" Content="Browse…" Style="{StaticResource SecondaryButton}"
-                                            Padding="13,6" MinHeight="0" Margin="8,0,0,0" FontSize="12"
-                                            Click="BrowseAgentFolderClicked" />
+                                    <Thumb Grid.Row="1" Cursor="SizeNS" DragDelta="InstructionResizeDragged"
+                                           ToolTip="Drag to resize the instruction box">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Grid Background="Transparent">
+                                                    <Border Width="46" Height="4" CornerRadius="2"
+                                                            Background="{StaticResource LineStrongBrush}"
+                                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
                                 </Grid>
-
-                                <TextBlock Grid.Row="2" Text="AGENT MODEL" Style="{StaticResource FieldLabel}"
-                                           Margin="1,16,0,7" />
-                                <TextBlock Grid.Row="2" Grid.Column="2" Text="AGENT EFFORT"
-                                           Style="{StaticResource FieldLabel}" Margin="1,16,0,7" />
-
-                                <ComboBox x:Name="AgentModelCombo" Grid.Row="3" DisplayMemberPath="DisplayName"
-                                          SelectionChanged="AgentModelChanged" />
-                                <ComboBox x:Name="AgentEffortCombo" Grid.Row="3" Grid.Column="2"
-                                          SelectionChanged="AgentModelChanged" />
-                                <StackPanel Grid.Row="3" Grid.Column="4" VerticalAlignment="Center">
-                                    <CheckBox x:Name="AgentCleanupCheck" FontSize="12.5"
-                                              Content="Clean up what I said before sending it"
-                                              Checked="AgentSettingsChanged" Unchecked="AgentSettingsChanged" />
-                                    <CheckBox x:Name="AgentFinishedSoundCheck" Margin="0,10,0,0" FontSize="12.5"
-                                              Content="Play a quiet chime when a run finishes"
-                                              Checked="AgentSettingsChanged" Unchecked="AgentSettingsChanged"
-                                              ToolTip="A run can take minutes; without this the only way to know it is done is to keep checking this window. Turned off entirely by 'Turn off the start and stop sounds'." />
-                                    <!-- Content and tooltip are set in code: both
-                                         say which models actually have this tier. -->
-                                    <CheckBox x:Name="AgentFastModeCheck" Margin="0,10,0,0" FontSize="12.5"
-                                              Content="Fast mode"
-                                              Checked="AgentSettingsChanged" Unchecked="AgentSettingsChanged" />
-                                </StackPanel>
-
-<!-- Above the standing-facts editor on purpose: that editor stretches
-                                     to fill the page, so anything under it is only seen after scrolling
-                                     to the very bottom — and this line is what says whether agent mode
-                                     will work at all. -->
-                                <TextBlock x:Name="AgentStatus" Grid.Row="4" Grid.ColumnSpan="5" Margin="1,16,0,0"
-                                           Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
-
-                                <Grid Grid.Row="5" Grid.ColumnSpan="5" Margin="0,20,0,0">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="*" />
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Text="STANDING FACTS FOR EVERY AGENT SESSION"
-                                               Style="{StaticResource FieldLabel}" />
-                                    <TextBlock Grid.Row="1" Margin="0,0,0,8" FontSize="11" TextWrapping="Wrap"
-                                               Foreground="{StaticResource MutedBrush}"
-                                               Text="Every press starts a session that knows nothing about you. Anything it should always know goes here — which apps you use, what your shorthand means, where things live." />
-                                    <TextBox x:Name="AgentInstructionBox" Grid.Row="2" Style="{StaticResource EditorBox}"
-                                             FontSize="14.5" TextChanged="AgentSettingsChanged" />
-                                </Grid>
-                            </Grid>
-                        </Grid>
-                    </ScrollViewer>
-                </ContentControl>
-
-                <!-- Spoken replies -->
-                <ContentControl x:Name="PageVoice" Style="{StaticResource Card}" Visibility="Collapsed">
-                    <ScrollViewer x:Name="ScrollVoice" VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0">
-                        <Grid MinHeight="{Binding ViewportHeight, ElementName=ScrollVoice}">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="SPOKEN REPLIES" Style="{StaticResource Eyebrow}" />
-                                    <TextBlock Text="Hear what the agent did, out loud" Style="{StaticResource PageTitle}" />
-                                    <TextBlock Style="{StaticResource PageBlurb}"
-                                               Text="When an agent run finishes, Gemini reads a short spoken summary of the reply back to you. The written reply still appears below as usual." />
-                                </StackPanel>
-                                <CheckBox x:Name="VoiceEnabledCheck" Grid.Column="1" Content="Enabled" FontWeight="SemiBold"
-                                          VerticalAlignment="Center" Checked="VoiceToggled" Unchecked="VoiceToggled" />
-                            </Grid>
-
-                            <Border Grid.Row="1" Height="1" Background="{StaticResource LineBrush}" Margin="0,20,0,20" />
-
-                            <Grid x:Name="VoiceOptions" Grid.Row="2">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="1.3*" />
-                                    <ColumnDefinition Width="20" />
-                                    <ColumnDefinition Width="1*" />
-                                    <ColumnDefinition Width="20" />
-                                    <ColumnDefinition Width="1*" />
-                                </Grid.ColumnDefinitions>
-
-                                <TextBlock Text="GOOGLE AI STUDIO API KEY" Style="{StaticResource FieldLabel}" />
-                                <TextBlock Grid.Column="2" Text="VOICE" Style="{StaticResource FieldLabel}" />
-                                <TextBlock Grid.Column="4" Text="VOLUME" Style="{StaticResource FieldLabel}" />
-
-                                <PasswordBox x:Name="VoiceApiKeyBox" Grid.Row="1"
-                                             PasswordChanged="VoiceKeyChanged"
-                                             ToolTip="Get a free key at aistudio.google.com. It is only used for reading replies out loud." />
-                                <ComboBox x:Name="VoiceCombo" Grid.Row="1" Grid.Column="2"
-                                          DisplayMemberPath="DisplayName" SelectionChanged="VoiceSettingChanged" />
-                                <Grid Grid.Row="1" Grid.Column="4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Slider x:Name="VoiceVolumeSlider" Minimum="0.05" Maximum="1" Value="0.35"
-                                            SmallChange="0.05" LargeChange="0.1"
-                                            ValueChanged="VoiceVolumeChanged" />
-                                    <TextBlock x:Name="VoiceVolumeText" Grid.Column="1" Text="35%" MinWidth="42"
-                                               TextAlignment="Right" VerticalAlignment="Center"
-                                               Foreground="{StaticResource MutedBrush}" FontSize="12"
-                                               FontWeight="SemiBold" Margin="10,0,0,0" />
-                                </Grid>
-
-                                <StackPanel Grid.Row="2" Grid.ColumnSpan="5" Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="VoicePreviewButton" Content="Preview this voice"
-                                            Style="{StaticResource SecondaryButton}" Padding="15,8" MinHeight="0"
-                                            FontSize="12.5" Click="VoicePreviewClicked" />
-                                    <Button x:Name="VoiceStopButton" Content="Stop" Style="{StaticResource SecondaryButton}"
-                                            Padding="15,8" MinHeight="0" FontSize="12.5" Margin="8,0,0,0"
-                                            Click="VoiceStopClicked" />
-                                    <TextBlock x:Name="VoiceStatus" Margin="14,0,0,0" VerticalAlignment="Center"
-                                               Foreground="{StaticResource MutedBrush}" FontSize="12"
-                                               TextWrapping="Wrap" />
-                                </StackPanel>
-
-                                <Border Grid.Row="3" Grid.ColumnSpan="5" Margin="0,20,0,0"
-                                        Background="#12FFFFFF" BorderBrush="#33DDB45F" BorderThickness="1"
-                                        CornerRadius="11" Padding="15,12">
-                                    <StackPanel>
-                                        <TextBlock Text="WHAT THIS SENDS TO GOOGLE" Style="{StaticResource Eyebrow}" />
-                                        <TextBlock Margin="0,7,0,0" FontSize="11.5" TextWrapping="Wrap"
-                                                   Foreground="{StaticResource MutedBrush}"
-                                                   Text="Only the one or two sentence spoken summary is sent — never your files, your instruction, or the full reply. Nothing is sent at all until an agent run finishes. On a free API key, Google may use what it receives to improve their models." />
-                                    </StackPanel>
-                                </Border>
-                            </Grid>
-
-                            <TextBlock x:Name="VoiceHint" Grid.Row="3" VerticalAlignment="Bottom" Margin="1,16,0,0"
-                                       Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
-                        </Grid>
-                    </ScrollViewer>
-                </ContentControl>
-
-                <!-- App -->
-                <ContentControl x:Name="PageApp" Style="{StaticResource Card}" Visibility="Collapsed">
-                    <ScrollViewer x:Name="ScrollApp" VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0">
-                        <Grid MinHeight="{Binding ViewportHeight, ElementName=ScrollApp}">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-
-                            <StackPanel>
-                                <TextBlock Text="SETTINGS" Style="{StaticResource Eyebrow}" />
-                                <TextBlock Text="How ShadowWhispr behaves" Style="{StaticResource PageTitle}" />
-                                <TextBlock Style="{StaticResource PageBlurb}"
-                                           Text="Startup, the tray, sounds and updates." />
-                            </StackPanel>
-
-                            <Border Grid.Row="1" Height="1" Background="{StaticResource LineBrush}" Margin="0,20,0,20" />
-
-                            <StackPanel Grid.Row="2">
-                                <CheckBox x:Name="KeepRunningInTrayCheck"
-                                          Content="Keep running in the tray when I close this window"
-                                          FontSize="13.5" Checked="TrayOptionToggled" Unchecked="TrayOptionToggled" />
-                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                                    <CheckBox x:Name="StartWithWindowsCheck" Content="Start ShadowWhispr when Windows starts"
-                                              FontSize="13.5" VerticalAlignment="Center"
-                                              Checked="StartWithWindowsToggled" Unchecked="StartWithWindowsToggled" />
-                                    <TextBlock x:Name="StartupStatus" Margin="14,0,0,0" Foreground="{StaticResource MutedBrush}"
-                                               FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
-                                </StackPanel>
-                                <CheckBox x:Name="MuteSoundCuesCheck" Margin="0,16,0,0"
-                                          Content="Turn off the start and stop sounds"
-                                          FontSize="13.5" Checked="SoundCuesToggled" Unchecked="SoundCuesToggled" />
-                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                                    <CheckBox x:Name="AutoUpdateCheck" Content="Automatically check for updates"
-                                              FontSize="13.5" VerticalAlignment="Center"
-                                              Checked="AutoUpdateToggled" Unchecked="AutoUpdateToggled" />
-                                    <Button x:Name="CheckUpdatesButton" Content="Check now"
-                                            Style="{StaticResource SecondaryButton}" Padding="12,5" MinHeight="0"
-                                            FontSize="12" Margin="16,0,0,0" Click="CheckForUpdatesClicked" />
-                                    <TextBlock x:Name="UpdateStatus" Margin="14,0,0,0" Foreground="{StaticResource MutedBrush}"
-                                               FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
-                                </StackPanel>
                             </StackPanel>
                         </Grid>
-                    </ScrollViewer>
+                    </StackPanel>
                 </ContentControl>
-            </Grid>
 
-            <!-- ===== Result strip, visible on every page ===== -->
-            <ContentControl Grid.Row="3" Style="{StaticResource Card}" Margin="0,16,0,0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
+                <ContentControl Grid.Row="3" Style="{StaticResource Card}">
                     <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="LAST TRANSCRIPT" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" />
-                        <Border Grid.Column="1" Background="#1810141A" BorderBrush="{StaticResource LineBrush}"
-                                BorderThickness="1" CornerRadius="14" Padding="11,6" VerticalAlignment="Center">
-                            <TextBlock x:Name="RunStatus" Text="Waiting for speech" Foreground="{StaticResource MutedBrush}"
-                                       FontSize="11" FontWeight="SemiBold" />
-                        </Border>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="LAST TRANSCRIPT" Style="{StaticResource Eyebrow}" />
+                                <TextBlock Text="Your most recent result" FontSize="18" FontWeight="SemiBold" Margin="0,4,0,0" />
+                            </StackPanel>
+                            <Border Grid.Column="1" Background="#1810141A" BorderBrush="{StaticResource LineBrush}"
+                                    BorderThickness="1" CornerRadius="14" Padding="11,6" VerticalAlignment="Center">
+                                <TextBlock x:Name="RunStatus" Text="Waiting for speech" Foreground="{StaticResource MutedBrush}"
+                                           FontSize="11" FontWeight="SemiBold" />
+                            </Border>
+                        </Grid>
+                        <TextBox x:Name="TranscriptBox" Grid.Row="1" Height="140" Margin="0,18,0,0"
+                                 FontSize="16"
+                                 IsReadOnly="True" TextWrapping="Wrap" VerticalContentAlignment="Top"
+                                 VerticalScrollBarVisibility="Auto" />
                     </Grid>
-                    <TextBox x:Name="TranscriptBox" Grid.Row="1" Height="96" Margin="0,12,0,0"
-                             FontSize="15"
-                             IsReadOnly="True" TextWrapping="Wrap" VerticalContentAlignment="Top"
-                             VerticalScrollBarVisibility="Auto" />
+                </ContentControl>
+
+                <Grid Grid.Row="4" Margin="3,20,3,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Border Width="26" Height="26" CornerRadius="13" Background="#1C66D39A" Margin="0,0,9,0">
+                                <TextBlock Text="✓" Foreground="{StaticResource SuccessBrush}" FontSize="13"
+                                           FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="Audio is deleted immediately after transcription."
+                                       Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <CheckBox x:Name="KeepRunningInTrayCheck"
+                                      Content="Keep running in the tray when I close this window"
+                                      FontSize="13" VerticalAlignment="Center"
+                                      Checked="TrayOptionToggled" Unchecked="TrayOptionToggled" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <CheckBox x:Name="StartWithWindowsCheck" Content="Start ShadowWhispr when Windows starts"
+                                      FontSize="13" VerticalAlignment="Center"
+                                      Checked="StartWithWindowsToggled" Unchecked="StartWithWindowsToggled" />
+                            <TextBlock x:Name="StartupStatus" Margin="12,0,0,0" Foreground="{StaticResource MutedBrush}"
+                                       FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <CheckBox x:Name="MuteSoundCuesCheck"
+                                      Content="Turn off the start and stop sounds"
+                                      FontSize="13" VerticalAlignment="Center"
+                                      Checked="SoundCuesToggled" Unchecked="SoundCuesToggled" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <CheckBox x:Name="AutoUpdateCheck" Content="Automatically check for updates"
+                                      FontSize="13" VerticalAlignment="Center"
+                                      Checked="AutoUpdateToggled" Unchecked="AutoUpdateToggled" />
+                            <Button x:Name="CheckUpdatesButton" Content="Check now"
+                                    Style="{StaticResource SecondaryButton}" Padding="12,5" MinHeight="0"
+                                    FontSize="12" Margin="14,0,0,0" Click="CheckForUpdatesClicked" />
+                            <TextBlock x:Name="UpdateStatus" Margin="12,0,0,0" Foreground="{StaticResource MutedBrush}"
+                                       FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                    <Border x:Name="SaveStatusPill" Grid.Column="1" Background="#1810141A"
+                            BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="14"
+                            Padding="13,7" VerticalAlignment="Top">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="SaveDot" Width="9" Height="9" Margin="0,0,8,0"
+                                     VerticalAlignment="Center" Fill="{StaticResource MutedBrush}" />
+                            <TextBlock x:Name="SaveStatus" Text="Settings save automatically"
+                                       Foreground="{StaticResource MutedBrush}" FontSize="12" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="280" />
+                        </StackPanel>
+                    </Border>
                 </Grid>
-            </ContentControl>
-        </Grid>
+            </Grid>
+        </ScrollViewer>
 
         <!-- First-run speech setup overlay (shown only when .venv is missing) -->
         <Border x:Name="SetupBanner" Visibility="Collapsed" Background="#D60A0D11" Panel.ZIndex="50">

@@ -29,7 +29,6 @@ public partial class MainWindow : Window
     private readonly GlobalHotkeyService _hotkey = new();
     private readonly AudioRecorderService _audio = new();
     private readonly TonePlayer _tones = new();
-    private readonly GeminiVoiceService _voice = new();
     private readonly TextInsertionService _inserter = new();
     private readonly UpdateService _updates = new();
     private readonly TrayIconService _tray = new();
@@ -70,33 +69,6 @@ public partial class MainWindow : Window
     /// <summary>True while the current recording is running hands-free after a quick tap.</summary>
     private bool _tapLatched;
 
-    /// <summary>
-    /// The latest processing message, shown in the status pill whenever nothing
-    /// is being recorded. Held rather than written straight to the pill so that
-    /// a message raised during a recording is not simply lost.
-    /// </summary>
-    private string _workStatus = "Waiting for speech";
-
-    /// <summary>
-    /// True while the pill is reporting a failure, which must survive until the
-    /// next recording rather than being tidied away by the next state change.
-    /// </summary>
-    private bool _errorShown;
-
-    /// <summary>One agent session that is currently running.</summary>
-    private sealed record AgentRun(int Number, CancellationTokenSource Cancel);
-
-    /// <summary>
-    /// The agent sessions in flight, oldest first. Agent instructions queue like
-    /// dictations do, but unlike dictations they do not wait for each other:
-    /// each starts its own session as soon as it has been transcribed, so
-    /// several can be working at once.
-    /// </summary>
-    private readonly List<AgentRun> _agentRuns = [];
-
-    /// <summary>Numbers the runs, so the transcript can say which one it is reporting on.</summary>
-    private int _agentRunCounter;
-
     /// <summary>True when the selected provider's CLI says it is already signed in.</summary>
     private bool _providerLoggedIn;
 
@@ -112,9 +84,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        // Read per call rather than copied in, so a key pasted a moment ago is
-        // the one the very next cleanup uses.
-        _ai.ApiKeyResolver = provider => _settings.GetApiKeyFor(provider);
         Loaded += OnLoaded;
         Closing += OnClosing;
         _hotkey.Pressed += OnHotkeyPressed;
@@ -122,9 +91,6 @@ public partial class MainWindow : Window
         _hotkey.Latched += OnHotkeyLatched;
         _audio.RecordingFailed += (_, ex) => AppLog.Write("Audio recording failed", ex);
         _tones.PlaybackFailed += (_, ex) => AppLog.Write("Cue tone playback failed", ex);
-        // Logged only. The agent run itself already succeeded and its reply is on
-        // screen, so a failure to read it out loud is not worth interrupting for.
-        _voice.SpeechFailed += (_, ex) => AppLog.Write("Speaking the agent reply failed", ex);
         _speechSetup.Progress += OnSetupProgress;
         _tray.OpenRequested += (_, _) => ShowFromTray();
         _tray.QuitRequested += (_, _) => RequestExit();
@@ -139,7 +105,6 @@ public partial class MainWindow : Window
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         AppLog.Write($"App started (version {typeof(MainWindow).Assembly.GetName().Version})");
-        FitWindowToScreen();
         _lifetime = new CancellationTokenSource();
         _settings = _settingsService.Load();
         ApplySettingsToUi();
@@ -167,8 +132,6 @@ public partial class MainWindow : Window
         {
             _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
             _hotkey.RawHotkey = ParseOptionalHotkey(_settings.RawHotkey);
-            _hotkey.AgentHotkey = ResolveAgentHotkey();
-            _hotkey.AgentAbortHotkey = ResolveAgentAbortHotkey();
             _hotkey.Start();
         }
         catch (Exception ex)
@@ -579,24 +542,15 @@ public partial class MainWindow : Window
         // processed; only an already-running recording blocks a new one.
         if (_audio.IsRecording) return;
         if (SetupBanner.Visibility == Visibility.Visible) return;
-
-        // The abort key records nothing. Each press stops the agent session that
-        // started most recently, so pressing it repeatedly walks back through
-        // what is running, newest first, to the oldest.
-        if (e.Kind == HotkeyKind.AgentAbort)
-        {
-            AbortNewestAgentRun();
-            return;
-        }
         try
         {
             _activeHotkeyKind = e.Kind;
             _tapLatched = false;
-            _errorShown = false;
-            if (e.Kind == HotkeyKind.Agent) _tones.PlayAgentPressed(); else _tones.PlayPressed();
+            _tones.PlayPressed();
             _insertionTarget = _inserter.CaptureTarget();
             await _audio.StartAsync(_lifetime?.Token ?? default);
-            RefreshRunStatus();
+            RunStatus.Text = e.Kind == HotkeyKind.Raw ? "Listening… (raw)" : "Listening…";
+            _tray.SetState(TrayState.Listening);
         }
         catch (Exception ex)
         {
@@ -614,15 +568,10 @@ public partial class MainWindow : Window
         if (!_audio.IsRecording || e.Kind != _activeHotkeyKind) return;
         _tapLatched = true;
         AppLog.Write($"Tap dictation latched on ({e.Kind})");
-        RefreshRunStatus();
+        RunStatus.Text = e.Kind == HotkeyKind.Raw
+            ? "Listening… (raw — press again to stop)"
+            : "Listening… (press again to stop)";
     }
-
-    private static string ListeningLabel(HotkeyKind kind) => kind switch
-    {
-        HotkeyKind.Raw => "Listening… (raw)",
-        HotkeyKind.Agent => "Listening… (agent)",
-        _ => "Listening…"
-    };
 
     private async void OnHotkeyReleased(object? sender, HotkeyEventArgs e)
     {
@@ -630,25 +579,17 @@ public partial class MainWindow : Window
         // Only the hotkey that started this recording may end it: a stray tap
         // release must not cut a hold dictation short, and the other way round.
         if (e.Kind != _activeHotkeyKind) return;
-
-        // Snapshot what this recording belongs to before the first await. The
-        // next press is free to land while StopAsync is still finishing, and it
-        // overwrites both of these - which used to hand this recording the next
-        // press's key and target, so a dictation could be carried out as an
-        // agent instruction, or pasted into whatever window was focused next.
-        var kind = _activeHotkeyKind;
-        var target = _insertionTarget;
         try
         {
             if (_tapLatched)
             {
                 _tapLatched = false;
-                AppLog.Write($"Tap dictation stopped ({kind})");
+                AppLog.Write($"Tap dictation stopped ({e.Kind})");
             }
             // Sounded before the recorder is closed, not after: stopping flushes
             // the recording to disk, and waiting for that put an audible lag
             // between letting the key go and hearing the cue.
-            if (kind == HotkeyKind.Agent) _tones.PlayAgentReleased(); else _tones.PlayReleased();
+            _tones.PlayReleased();
             var recording = await _audio.StopAsync(_lifetime?.Token ?? default);
             if (string.IsNullOrWhiteSpace(recording))
             {
@@ -656,16 +597,11 @@ public partial class MainWindow : Window
                 return;
             }
 
-            _jobs.Enqueue(new DictationJob(recording, kind, target));
+            _jobs.Enqueue(new DictationJob(recording, _activeHotkeyKind, _insertionTarget));
             if (_jobs.Count > 1 || _busy)
             {
                 AppLog.Write($"Dictation queued behind the one being processed ({_jobs.Count} waiting)");
             }
-
-            // The pill still says "Listening" until this runs. Without it a
-            // recording queued behind a long agent run leaves the app claiming
-            // to be listening for as long as that run takes.
-            RefreshRunStatus();
         }
         catch (OperationCanceledException) { return; }
         catch (Exception ex)
@@ -692,15 +628,14 @@ public partial class MainWindow : Window
             {
                 var cancellationToken = _lifetime?.Token ?? default;
                 if (cancellationToken.IsCancellationRequested) break;
-                var job = _jobs.Dequeue();
-                RefreshRunStatus();
-                await ProcessJobAsync(job, cancellationToken);
+                if (!_audio.IsRecording) _tray.SetState(TrayState.Working);
+                await ProcessJobAsync(_jobs.Dequeue(), cancellationToken);
             }
         }
         finally
         {
             _busy = false;
-            RefreshRunStatus();
+            if (!_audio.IsRecording && _parakeet.IsReady) _tray.SetState(TrayState.Ready);
         }
     }
 
@@ -720,18 +655,6 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(text))
             {
                 SetQueueStatus("No speech detected");
-                return;
-            }
-
-            // The agent hotkey is not dictation at all: the transcript is an
-            // instruction for Claude Code, and its answer is only ever shown
-            // here. Nothing is typed into the window the user was in.
-            // Deliberately not awaited: agent instructions queue like dictations
-            // but do not wait for each other, so the next one can be transcribed
-            // and sent while this session is still working.
-            if (job.Kind == HotkeyKind.Agent)
-            {
-                _ = RunAgentJobAsync(text, cancellationToken);
                 return;
             }
 
@@ -776,208 +699,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Sends one spoken instruction to a fresh headless Claude Code session and
-    /// shows what it reports back. Failures are reported the same way a result
-    /// is, because the only place the user can see either is this window.
-    /// </summary>
-    private async Task RunAgentJobAsync(string instruction, CancellationToken cancellationToken)
-    {
-        var folder = _settings.ResolveAgentWorkingDirectory();
-        var number = ++_agentRunCounter;
-        AppLog.Write($"Agent run #{number} received ({instruction.Length} characters), folder '{folder}'");
-
-        // Its own token, linked to the app's, so aborting this run leaves every
-        // other session that is working alone.
-        using var runCancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var run = new AgentRun(number, runCancel);
-        _agentRuns.Add(run);
-        var runToken = runCancel.Token;
-        ShowAgentProgress(number, instruction, "Working…");
-
-        try
-        {
-            // Optional: tidy the spoken instruction before the agent acts on it.
-            // A failure here is not fatal — the raw transcript is still a usable
-            // instruction, and refusing to act on it would be worse than acting
-            // on a slightly messy one.
-            if (_settings.WillCleanAgentInstruction)
-            {
-                SetQueueStatus($"Cleaning the instruction with {_settings.Provider}…");
-                try
-                {
-                    instruction = await _ai.ProcessAsync(
-                        _settings.Provider,
-                        _settings.ModelId,
-                        _settings.Reasoning,
-                        _settings.CustomInstruction,
-                        instruction,
-                        runToken,
-                        _settings.CodexFastMode);
-                    AppLog.Write($"Agent instruction cleaned up with {_settings.Provider}");
-                    ShowAgentProgress(number, instruction, "Working…");
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    AppLog.Write("Cleaning the agent instruction failed; sending it as spoken", ex);
-                }
-            }
-
-            SetQueueStatus("Claude Code is working…");
-            var speaking = _settings.WillSpeakAgentReply;
-            var reply = await _ai.RunAgentAsync(
-                instruction,
-                folder,
-                _settings.AgentModelId,
-                _settings.AgentEffort,
-                _settings.AgentInstruction,
-                speaking,
-                _settings.AgentFastMode,
-                runToken);
-            _agentRuns.Remove(run);
-
-            // The spoken half is split off whether or not it will be read out:
-            // the tag is only ever asked for when speaking is on, but a model
-            // that adds one uninvited must not leave it on screen.
-            var (shown, spoken) = AiProviderService.SplitAgentReply(reply);
-            ShowAgentProgress(number, instruction, shown);
-            SetQueueStatus("Agent finished");
-
-            // Only on a run that finished by itself. A stop and a failure each
-            // have their own signal already, and a "done" chime after either
-            // would be telling you the opposite of what happened.
-            if (_settings.AgentFinishedSoundEnabled) _tones.PlayFinished();
-
-            // Not awaited: the reply is already on screen and the run is done.
-            // Waiting here would keep the run in the list for as long as it
-            // takes to read out, and the abort key would then stop a session
-            // that had already finished.
-            if (speaking)
-            {
-                _ = SpeakReplyAsync(number, spoken, cancellationToken);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // The app closing cancels this too, and then there is nobody left to
-            // tell. Only a stop the user asked for gets reported.
-            if (cancellationToken.IsCancellationRequested) return;
-
-            AppLog.Write($"Agent run #{number} stopped by the user");
-            ShowAgentProgress(number, instruction, "Stopped. Anything it had already done stays done.");
-            SetQueueStatus("Agent stopped");
-        }
-        catch (Exception ex)
-        {
-            AppLog.Write($"Agent run #{number} failed", ex);
-            ShowAgentProgress(number, instruction, $"Agent failed: {ex.Message}");
-            _errorShown = true;
-            _tray.SetState(TrayState.Error);
-            SetQueueStatus("Agent failed");
-        }
-        finally
-        {
-            // Already gone when this run was the one aborted, and removing it
-            // twice is harmless.
-            _agentRuns.Remove(run);
-            RefreshRunStatus();
-        }
-    }
-
-    /// <summary>
-    /// Reads a finished run's reply out loud. Every failure is swallowed after
-    /// being logged: the user has already got what they asked for, and a popup
-    /// about the voice would be interrupting a job that went fine.
-    /// </summary>
-    private async Task SpeakReplyAsync(int number, string spoken, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(spoken))
-        {
-            AppLog.Write($"Agent run #{number} had nothing worth speaking");
-            return;
-        }
-
-        try
-        {
-            AppLog.Write($"Speaking the reply to agent run #{number} ({spoken.Length} characters)");
-            await _voice.SpeakAsync(
-                spoken,
-                _settings.VoiceApiKey,
-                _settings.VoiceName,
-                _settings.VoiceVolume,
-                cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            AppLog.Write($"Speaking the reply to agent run #{number} was stopped");
-        }
-        catch (Exception ex)
-        {
-            AppLog.Write($"Speaking the reply to agent run #{number} failed", ex);
-        }
-    }
-
-    /// <summary>
-    /// Shows one agent run's state in the transcript box. Numbered, because with
-    /// several running at once the reply that lands is not necessarily for the
-    /// instruction you spoke last.
-    /// </summary>
-    private void ShowAgentProgress(int number, string instruction, string body) =>
-        Dispatcher.Invoke(() => TranscriptBox.Text = $"Agent #{number}  →  {instruction}\n\n{body}");
-
-    /// <summary>
-    /// Records the latest processing message and shows it. While the user is
-    /// recording, "Listening…" owns the pill and this waits its turn rather than
-    /// being dropped, so the message is still right once recording stops.
+    /// Shows processing progress in the status pill, with a queue count when
+    /// messages are waiting. While the user is recording, "Listening…" owns the
+    /// pill and progress updates stay out of its way.
     /// </summary>
     private void SetQueueStatus(string text)
     {
-        _workStatus = text;
-        RefreshRunStatus();
-    }
-
-    /// <summary>
-    /// Derives the status pill and the tray icon from what is actually
-    /// happening, rather than from whichever event last had an opinion.
-    ///
-    /// Mixing the three keys used to strand both: a recording that finished
-    /// while an earlier job was still running went straight onto the queue, and
-    /// nothing then corrected a pill and tray icon still left on "Listening" by
-    /// the press. Every state change calls this instead of writing them itself.
-    /// </summary>
-    private void RefreshRunStatus()
-    {
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.Invoke(RefreshRunStatus);
-            return;
-        }
-
-        if (_audio.IsRecording)
-        {
-            RunStatus.Text = _tapLatched
-                ? $"{ListeningLabel(_activeHotkeyKind)} — press again to stop"
-                : ListeningLabel(_activeHotkeyKind);
-            _tray.SetState(TrayState.Listening);
-            return;
-        }
-
-        var parts = new List<string> { _workStatus };
-        if (_jobs.Count > 0) parts.Add($"{_jobs.Count} waiting");
-        // Agent sessions run alongside each other, so how many are working is
-        // the one thing the pill cannot work out from the queue length.
-        if (_agentRuns.Count > 0)
-        {
-            parts.Add(_agentRuns.Count == 1 ? "1 agent running" : $"{_agentRuns.Count} agents running");
-        }
-        RunStatus.Text = string.Join(" · ", parts);
-
-        // An error stays on screen until the next recording clears it; anything
-        // else would replace the only report the user gets with a cheerful
-        // "Ready" a moment later.
-        if (_errorShown) return;
-
-        if (_busy || _jobs.Count > 0 || _agentRuns.Count > 0) _tray.SetState(TrayState.Working);
-        else if (_parakeet.IsReady) _tray.SetState(TrayState.Ready);
+        if (_audio.IsRecording) return;
+        RunStatus.Text = _jobs.Count > 0 ? $"{text} · {_jobs.Count} waiting" : text;
     }
 
     private void ApplySettingsToUi()
@@ -990,31 +719,6 @@ public partial class MainWindow : Window
         RawHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.RawHotkey)
             ? OptionalHotkeyUnsetLabel
             : _settings.RawHotkey;
-        AgentHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.AgentHotkey)
-            ? OptionalHotkeyUnsetLabel
-            : _settings.AgentHotkey;
-        AgentAbortHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.AgentAbortHotkey)
-            ? OptionalHotkeyUnsetLabel
-            : _settings.AgentAbortHotkey;
-        AgentModeCheck.IsChecked = _settings.AgentModeEnabled;
-        AgentFolderBox.Text = _settings.ResolveAgentWorkingDirectory();
-        AgentOptions.IsEnabled = _settings.AgentModeEnabled;
-        // Fixed lists rather than discovered ones: agent mode is Claude-only, so
-        // there is no CLI to ask and nothing that can come back empty.
-        AgentModelCombo.ItemsSource = AiProviderService.AgentModels;
-        AgentModelCombo.SelectedItem = AiProviderService.AgentModels.First(model =>
-            model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId));
-        UpdateAgentEffortChoices();
-        UpdateAgentFastModeAvailability();
-        AgentFinishedSoundCheck.IsChecked = _settings.AgentFinishedSoundEnabled;
-        AgentInstructionBox.Text = _settings.AgentInstruction;
-        VoiceEnabledCheck.IsChecked = _settings.VoiceReplyEnabled;
-        VoiceOptions.IsEnabled = _settings.VoiceReplyEnabled;
-        VoiceApiKeyBox.Password = _settings.VoiceApiKey;
-        VoiceCombo.ItemsSource = GeminiVoiceService.Voices;
-        VoiceCombo.SelectedItem = GeminiVoiceService.Voices.First(voice =>
-            voice.Id == GeminiVoiceService.NormalizeVoice(_settings.VoiceName));
-        VoiceVolumeSlider.Value = Math.Clamp(_settings.VoiceVolume, VoiceVolumeSlider.Minimum, VoiceVolumeSlider.Maximum);
         RefreshMicrophoneList(_settings.Microphone);
         _audio.PreferredDeviceName = _settings.Microphone;
         KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
@@ -1030,490 +734,10 @@ public partial class MainWindow : Window
             : string.Empty;
         AiEnabledCheck.IsChecked = _settings.AiEnabled;
         SelectComboText(ProviderCombo, _settings.Provider);
-        UpdateProviderAuthUi();
         InstructionBox.Text = _settings.CustomInstruction;
         AiOptions.IsEnabled = _settings.AiEnabled;
         AutoUpdateCheck.IsChecked = _settings.AutoUpdateEnabled;
-        // After the AI cleanup box above, never before: this reads that box to
-        // decide whether agent cleanup is available, and running it first left
-        // the agent box greyed out on a fresh start whatever the setting said.
-        UpdateAgentCleanupAvailability();
         _uiReady = true;
-        UpdateAgentStatus();
-        UpdateVoiceStatus();
-    }
-
-    /// <summary>
-    /// Keeps the window inside the screen it opens on.
-    ///
-    /// A fixed size cannot work everywhere: the size that fits this design
-    /// comfortably is taller than a 1366x768 laptop, so on a small screen the
-    /// bottom of the window - the transcript, and whichever setting sat lowest -
-    /// would simply be off the desktop with no way to reach it. Instead the
-    /// preferred size is used where there is room for it, shrunk to the work
-    /// area where there is not, and the pages scroll to make up the difference.
-    ///
-    /// The work area rather than the whole screen, so the window never opens
-    /// underneath the taskbar.
-    /// </summary>
-    private void FitWindowToScreen()
-    {
-        var available = SystemParameters.WorkArea;
-
-        // A margin, so the window does not sit corner to corner against the
-        // screen edges when it has to be shrunk.
-        var maxWidth = Math.Max(MinWidth, available.Width - 40);
-        var maxHeight = Math.Max(MinHeight, available.Height - 40);
-
-        var width = Math.Min(Width, maxWidth);
-        var height = Math.Min(Height, maxHeight);
-
-        if (Math.Abs(width - Width) > 0.5 || Math.Abs(height - Height) > 0.5)
-        {
-            AppLog.Write(
-                $"Window shrunk to fit the screen: wanted {Width:0}x{Height:0}, " +
-                $"using {width:0}x{height:0} in a {available.Width:0}x{available.Height:0} work area");
-        }
-
-        Width = width;
-        Height = height;
-
-        // Re-centre by hand: WindowStartupLocation has already placed the window
-        // using the size it had before this ran.
-        Left = available.Left + ((available.Width - width) / 2);
-        Top = available.Top + ((available.Height - height) / 2);
-    }
-
-    // --- Category tabs -----------------------------------------------------
-
-    /// <summary>
-    /// Shows the page whose tab was just picked. Every page is built at startup
-    /// and only its visibility changes, so the controls the rest of this class
-    /// reads and writes exist whichever tab happens to be open.
-    /// </summary>
-    private void NavChanged(object sender, RoutedEventArgs e)
-    {
-        // Fires once for each tab during InitializeComponent, before the pages
-        // themselves exist.
-        if (PageDictation is null) return;
-
-        PageDictation.Visibility = Visible(NavDictation);
-        PageCleanup.Visibility = Visible(NavCleanup);
-        PageAgent.Visibility = Visible(NavAgent);
-        PageVoice.Visibility = Visible(NavVoice);
-        PageApp.Visibility = Visible(NavApp);
-        return;
-
-        static Visibility Visible(System.Windows.Controls.Primitives.ToggleButton tab) =>
-            tab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    // --- Spoken replies ----------------------------------------------------
-
-    private void VoiceToggled(object sender, RoutedEventArgs e)
-    {
-        if (VoiceOptions is null) return;
-        VoiceOptions.IsEnabled = VoiceEnabledCheck.IsChecked == true;
-        if (!_uiReady) return;
-
-        ReadUiIntoSettings();
-        AppLog.Write($"Spoken replies set to {_settings.VoiceReplyEnabled} " +
-                     $"(voice {_settings.VoiceName}, key {(string.IsNullOrWhiteSpace(_settings.VoiceApiKey) ? "not set" : "set")})");
-
-        // Turned off mid-sentence means stop talking now, not after this one.
-        if (!_settings.VoiceReplyEnabled) _voice.Stop();
-
-        UpdateVoiceStatus();
-        QueueAutoSave();
-    }
-
-    private void VoiceSettingChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (!_uiReady) return;
-        ReadUiIntoSettings();
-        AppLog.Write($"Reply voice set to {_settings.VoiceName}");
-        UpdateVoiceStatus();
-        QueueAutoSave();
-    }
-
-    private void VoiceKeyChanged(object sender, RoutedEventArgs e)
-    {
-        if (!_uiReady) return;
-        ReadUiIntoSettings();
-        // Never logged, only whether there is one. It is a credential.
-        UpdateVoiceStatus();
-        QueueAutoSave();
-    }
-
-    private void VoiceVolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        // Runs before the rest of the UI exists, because the slider's XAML sets
-        // a starting value.
-        if (VoiceVolumeText is null) return;
-        VoiceVolumeText.Text = $"{VoiceVolumeSlider.Value * 100:0}%";
-        if (!_uiReady) return;
-
-        ReadUiIntoSettings();
-        QueueAutoSave();
-    }
-
-    /// <summary>
-    /// Reads a sample line in the chosen voice, so the user can pick one without
-    /// having to trigger a real agent run to hear it.
-    /// </summary>
-    private async void VoicePreviewClicked(object sender, RoutedEventArgs e)
-    {
-        ReadUiIntoSettings();
-
-        if (string.IsNullOrWhiteSpace(_settings.VoiceApiKey))
-        {
-            VoiceStatus.Text = "Paste your Google AI Studio API key first.";
-            return;
-        }
-
-        VoicePreviewButton.IsEnabled = false;
-        VoiceStatus.Text = $"Asking {_settings.VoiceName} to say something…";
-        try
-        {
-            AppLog.Write($"Previewing the {_settings.VoiceName} voice");
-            await _voice.SpeakAsync(
-                VoicePreviewLine,
-                _settings.VoiceApiKey,
-                _settings.VoiceName,
-                _settings.VoiceVolume,
-                _lifetime?.Token ?? default);
-            VoiceStatus.Text = $"That was {_settings.VoiceName}.";
-        }
-        catch (OperationCanceledException)
-        {
-            VoiceStatus.Text = "Preview stopped.";
-        }
-        catch (Exception ex)
-        {
-            AppLog.Write("Voice preview failed", ex);
-            VoiceStatus.Text = $"Preview failed: {ex.Message}";
-        }
-        finally
-        {
-            VoicePreviewButton.IsEnabled = true;
-        }
-    }
-
-    private void VoiceStopClicked(object sender, RoutedEventArgs e)
-    {
-        _voice.Stop();
-        VoiceStatus.Text = "Stopped.";
-    }
-
-    /// <summary>
-    /// The preview line. Deliberately the shape of a real reply, so the voice is
-    /// judged on the kind of sentence it will actually be reading.
-    /// </summary>
-    private const string VoicePreviewLine =
-        "All done — I tidied up those screenshots and put them in a folder on your desktop.";
-
-    /// <summary>
-    /// Says whether replies will actually be spoken, and if not, why not. The
-    /// same job the agent status line does: a switch that is on but silent is
-    /// worse than one that explains itself.
-    /// </summary>
-    private void UpdateVoiceStatus()
-    {
-        if (VoiceHint is null) return;
-
-        if (!_settings.VoiceReplyEnabled)
-        {
-            VoiceHint.Text = "Spoken replies are off. Agent replies will only appear as text.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_settings.VoiceApiKey))
-        {
-            VoiceHint.Text = "Add a Google AI Studio API key above — without one there is nothing to speak with.";
-            return;
-        }
-
-        if (!_settings.AgentModeEnabled)
-        {
-            VoiceHint.Text = "Ready, but agent mode is switched off, so there are no replies to read out yet.";
-            return;
-        }
-
-        VoiceHint.Text = $"Ready. {_settings.VoiceName} will read out a short summary when an agent run finishes.";
-    }
-
-    // --- Agent mode --------------------------------------------------------
-
-    private void AgentModeToggled(object sender, RoutedEventArgs e)
-    {
-        if (AgentOptions is null) return;
-        AgentOptions.IsEnabled = AgentModeCheck.IsChecked == true;
-        if (!_uiReady) return;
-
-        ReadUiIntoSettings();
-        AppLog.Write($"Agent mode set to {_settings.AgentModeEnabled} " +
-                     $"(key '{(_settings.AgentHotkey.Length == 0 ? "(none)" : _settings.AgentHotkey)}', " +
-                     $"folder '{_settings.ResolveAgentWorkingDirectory()}')");
-        _hotkey.AgentHotkey = ResolveAgentHotkey();
-        _hotkey.AgentAbortHotkey = ResolveAgentAbortHotkey();
-        UpdateAgentStatus();
-        // The voice page's summary mentions agent mode, so it goes stale when
-        // agent mode is switched from here.
-        UpdateVoiceStatus();
-        UpdateTrayStatus();
-        QueueAutoSave();
-    }
-
-    /// <summary>
-    /// Stops the agent session that started most recently. Newest first because
-    /// that is the one you just changed your mind about; the older ones have
-    /// been working longer and are more likely to be wanted.
-    /// </summary>
-    private void AbortNewestAgentRun()
-    {
-        // Speech is always stopped, even when a run is also being aborted: a
-        // reply still being read out is the most obvious thing the abort key
-        // could be aimed at, and leaving it talking would look broken.
-        var wasSpeaking = _voice.IsSpeaking;
-        _voice.Stop();
-
-        if (_agentRuns.Count == 0)
-        {
-            if (wasSpeaking)
-            {
-                AppLog.Write("Abort key stopped a reply that was being read out");
-                SetQueueStatus("Stopped talking");
-                return;
-            }
-
-            AppLog.Write("Abort key pressed with no agent running");
-            SetQueueStatus("Nothing to stop");
-            return;
-        }
-
-        var newest = _agentRuns[^1];
-        _agentRuns.RemoveAt(_agentRuns.Count - 1);
-        AppLog.Write($"Aborting agent run #{newest.Number}; {_agentRuns.Count} still running");
-        _tones.PlayCancelled();
-        try
-        {
-            newest.Cancel.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // It finished on its own between being picked and being cancelled.
-        }
-
-        RefreshRunStatus();
-    }
-
-    private void AgentModelChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (!_uiReady) return;
-
-        // The models do not offer the same efforts, so the list is rebuilt for
-        // whichever one is now chosen before the choice is read back.
-        // Fast mode belongs to the model too: switching from Codex to Claude has
-        // to grey it out before the choice is read back, or an unavailable tier
-        // would be saved as if it were on.
-        if (ReferenceEquals(sender, AgentModelCombo))
-        {
-            UpdateAgentEffortChoices();
-            UpdateAgentFastModeAvailability();
-        }
-
-        ReadUiIntoSettings();
-        AppLog.Write($"Agent model set to {_settings.AgentModelId} at {_settings.AgentEffort} effort " +
-                     $"({AiProviderService.GetAgentProvider(_settings.AgentModelId)}, " +
-                     $"fast mode {(_settings.AgentFastMode ? "on" : "off")})");
-        UpdateAgentStatus();
-        QueueAutoSave();
-    }
-
-    /// <summary>
-    /// Fills the effort list for the chosen agent model, keeping the current
-    /// choice when that model still offers it. Sonnet leaves out "low", so
-    /// switching to it from Opus on low has to land somewhere sensible rather
-    /// than on an empty box.
-    /// </summary>
-    private void UpdateAgentEffortChoices()
-    {
-        var wasReady = _uiReady;
-        _uiReady = false;
-        try
-        {
-            var modelId = (AgentModelCombo.SelectedItem as AiModelOption)?.Id ?? _settings.AgentModelId;
-            var levels = AiProviderService.GetAgentEffortLevels(modelId);
-            AgentEffortCombo.ItemsSource = levels;
-            AgentEffortCombo.SelectedItem = AiProviderService.NormalizeAgentEffort(modelId, _settings.AgentEffort);
-        }
-        finally
-        {
-            _uiReady = wasReady;
-        }
-    }
-
-    /// <summary>
-    /// The agent card's own settings handler. Kept apart from
-    /// <see cref="SettingsChanged"/> so that typing in the standing-facts box
-    /// does not re-apply the dictation hotkey on every keystroke.
-    /// </summary>
-    private void AgentSettingsChanged(object sender, RoutedEventArgs e)
-    {
-        if (!_uiReady) return;
-        ReadUiIntoSettings();
-        UpdateAgentStatus();
-        QueueAutoSave();
-    }
-
-    private void BrowseAgentFolderClicked(object sender, RoutedEventArgs e)
-    {
-        var dialog = new Microsoft.Win32.OpenFolderDialog
-        {
-            Title = "Folder for agent mode",
-            InitialDirectory = Directory.Exists(AgentFolderBox.Text)
-                ? AgentFolderBox.Text
-                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-        };
-
-        if (dialog.ShowDialog(this) != true) return;
-
-        AgentFolderBox.Text = dialog.FolderName;
-        AppLog.Write($"Agent working folder set to '{dialog.FolderName}'");
-    }
-
-    /// <summary>
-    /// The agent binding the hotkey hook should listen for: none unless agent
-    /// mode is switched on and a key is actually assigned, so a leftover key
-    /// from a disabled agent mode can never quietly start a session.
-    /// </summary>
-    private HoldHotkey? ResolveAgentHotkey() =>
-        _settings.AgentModeEnabled ? ParseOptionalHotkey(_settings.AgentHotkey) : null;
-
-    /// <summary>
-    /// Greys out agent fast mode unless the chosen agent model actually has a
-    /// faster tier, which today means the Codex one. Same treatment as the
-    /// cleanup box above: greyed out it shows unticked, because that is the
-    /// truth about what will happen, but the saved choice is left alone so that
-    /// switching back to Codex restores it.
-    /// </summary>
-    private void UpdateAgentFastModeAvailability()
-    {
-        var wasReady = _uiReady;
-        _uiReady = false;
-        try
-        {
-            var modelId = (AgentModelCombo.SelectedItem as AiModelOption)?.Id ?? _settings.AgentModelId;
-            var available = AiProviderService.AgentModelSupportsFastMode(modelId);
-            AgentFastModeCheck.IsEnabled = available;
-            AgentFastModeCheck.IsChecked = available && _settings.AgentFastMode;
-            AgentFastModeCheck.Content = available
-                ? "Fast mode — about 1.5x quicker"
-                : "Fast mode — only the Codex model has this";
-            AgentFastModeCheck.ToolTip = available
-                ? "Runs the agent on Codex's priority tier. It works through your Codex usage allowance quicker than normal speed."
-                : "Only GPT-5.6-Luna offers a faster tier. The Claude models run at one speed.";
-        }
-        finally
-        {
-            _uiReady = wasReady;
-        }
-    }
-
-    /// <summary>
-    /// Greys out the agent cleanup box whenever AI cleanup is switched off,
-    /// because agent cleanup runs on that card's provider and model and cannot
-    /// happen without them.
-    ///
-    /// While greyed it also shows unticked, which is the truth about what will
-    /// happen — but the saved setting is left alone, so switching AI cleanup
-    /// back on restores the choice rather than quietly forgetting it.
-    /// </summary>
-    private void UpdateAgentCleanupAvailability()
-    {
-        var wasReady = _uiReady;
-        _uiReady = false;
-        try
-        {
-            var available = AiEnabledCheck.IsChecked == true;
-            AgentCleanupCheck.IsEnabled = available;
-            AgentCleanupCheck.IsChecked = available && _settings.AgentCleanupEnabled;
-            // The label says why it is greyed out. A box that is simply dead
-            // leaves the user hunting for the reason, and the reason is a
-            // setting in a different card.
-            AgentCleanupCheck.Content = available
-                ? "Clean up what I said before sending it"
-                : "Clean up what I said before sending it — turn on AI cleanup above to use this";
-            AgentCleanupCheck.ToolTip = available
-                ? "Runs the spoken instruction through your AI cleanup provider first, then hands the tidied version to the agent."
-                : "This uses the provider and model from the AI cleanup card above, so that has to be enabled first.";
-        }
-        finally
-        {
-            _uiReady = wasReady;
-        }
-    }
-
-    /// <summary>The abort binding, for the same reason and on the same terms.</summary>
-    private HoldHotkey? ResolveAgentAbortHotkey() =>
-        _settings.AgentModeEnabled ? ParseOptionalHotkey(_settings.AgentAbortHotkey) : null;
-
-    /// <summary>
-    /// Says in one line what agent mode will actually do when the key is
-    /// pressed, including the two ways it can be switched on but inert: no key
-    /// assigned, or a working folder that does not exist.
-    /// </summary>
-    private void UpdateAgentStatus()
-    {
-        if (!_settings.AgentModeEnabled)
-        {
-            AgentStatus.Text = "Off. Your dictation keys are unaffected.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_settings.AgentHotkey))
-        {
-            AgentStatus.Text = "Assign an agent key above — agent mode does nothing until you do.";
-            return;
-        }
-
-        var folder = _settings.ResolveAgentWorkingDirectory();
-        if (!Directory.Exists(folder))
-        {
-            AgentStatus.Text = $"This folder does not exist: {folder}";
-            return;
-        }
-
-        var modelName = AiProviderService.AgentModels
-            .FirstOrDefault(model => model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId))
-            ?.DisplayName ?? _settings.AgentModelId;
-
-        var cleanup = _settings.WillCleanAgentInstruction
-            ? $" What you say is tidied by {_settings.Provider} first."
-            : _settings.AgentCleanupEnabled
-                ? " Tidying what you say is switched on but idle, because AI cleanup above is off."
-                : string.Empty;
-
-        var abort = string.IsNullOrWhiteSpace(_settings.AgentAbortHotkey)
-            ? " Assign an abort key to be able to stop one."
-            : $" {_settings.AgentAbortHotkey} stops the one that started most recently, so pressing it again " +
-              "and again works back through them.";
-
-        // The DeepSeek routes are the only agent models that need anything
-        // installed or pasted beyond their own CLI login, so what they need is
-        // spelled out right here rather than discovered from a failed run.
-        var agentProvider = AiProviderService.GetAgentProvider(_settings.AgentModelId);
-        var openCodeNote = agentProvider is AiProviderService.DeepSeek or AiProviderService.OpenRouter
-            ? $" This model runs through the OpenCode CLI (npm install -g opencode-ai) and uses the " +
-              $"{agentProvider} API key from the AI cleanup page — paste one there if you have not."
-            : string.Empty;
-
-        AgentStatus.Text =
-            $"Hold or tap {_settings.AgentHotkey} and say what you want done. Every press starts a brand new " +
-            $"{modelName} session at " +
-            $"{AiProviderService.NormalizeAgentEffort(_settings.AgentModelId, _settings.AgentEffort)} effort in " +
-            $"{folder} — it remembers nothing from the last one, and several can work at once.{cleanup}{abort} " +
-            $"Replies appear under \"Last transcript\" and are never pasted anywhere.{openCodeNote}";
     }
 
     // --- Microphone selection ---------------------------------------------
@@ -1581,58 +805,12 @@ public partial class MainWindow : Window
                 $"(remembered effort for {_activeProvider}: {_settings.GetReasoningFor(_activeProvider) ?? "none yet"})");
         }
 
-        UpdateProviderAuthUi();
         _ = RefreshLoginStatusAsync(_settings.Provider);
         QueueAutoSave();
 
         // Restore the model this provider was last using, for the same reason
         // as its effort: coming back should look like you left it.
         await RefreshModelsAsync(_settings.GetModelFor(_activeProvider));
-    }
-
-    /// <summary>True when the provider authenticates with a pasted API key rather than a CLI login.</summary>
-    private static bool IsApiKeyProvider(string? provider) =>
-        string.Equals(provider, AiProviderService.DeepSeek, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(provider, AiProviderService.OpenRouter, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Swaps the login buttons for the API key field on the cleanup card,
-    /// depending on how the active provider authenticates. The key box is
-    /// refilled from settings on every switch because the one box is shared by
-    /// both API providers, and each remembers its own key.
-    /// </summary>
-    private void UpdateProviderAuthUi()
-    {
-        var usesApiKey = IsApiKeyProvider(_activeProvider);
-        LoginButtonsPanel.Visibility = usesApiKey ? Visibility.Collapsed : Visibility.Visible;
-        ApiKeyPanel.Visibility = usesApiKey ? Visibility.Visible : Visibility.Collapsed;
-        if (!usesApiKey) return;
-
-        ApiKeyLabel.Text = string.Equals(_activeProvider, AiProviderService.DeepSeek, StringComparison.OrdinalIgnoreCase)
-            ? "DEEPSEEK API KEY"
-            : "OPENROUTER API KEY";
-        // Filling the box raises PasswordChanged, which must not read the UI
-        // back into settings mid-switch and file this key under the wrong provider.
-        var wasReady = _uiReady;
-        _uiReady = false;
-        try
-        {
-            CleanupApiKeyBox.Password = _settings.GetApiKeyFor(_activeProvider) ?? string.Empty;
-        }
-        finally
-        {
-            _uiReady = wasReady;
-        }
-    }
-
-    private void CleanupApiKeyChanged(object sender, RoutedEventArgs e)
-    {
-        if (!_uiReady) return;
-        ReadUiIntoSettings();
-        // Never logged, only whether there is one — it is a credential. The
-        // login status line flips to "API key saved" as soon as one is pasted.
-        _ = RefreshLoginStatusAsync(_settings.Provider);
-        QueueAutoSave();
     }
 
     private async void LoginClicked(object sender, RoutedEventArgs e)
@@ -1711,8 +889,6 @@ public partial class MainWindow : Window
         AuthStatus.Text = provider switch
         {
             AiProviderService.Gemini => "Login uses Google Antigravity",
-            AiProviderService.DeepSeek => "Paste your DeepSeek API key from platform.deepseek.com",
-            AiProviderService.OpenRouter => "Paste your OpenRouter API key from openrouter.ai/keys",
             _ => $"Login uses your {provider} subscription"
         };
     }
@@ -1755,7 +931,7 @@ public partial class MainWindow : Window
         if (_providerLoggedIn)
         {
             LoginButton.IsEnabled = false;
-            AuthStatus.Text = IsApiKeyProvider(provider) ? "API key saved" : "Already logged in";
+            AuthStatus.Text = "Already logged in";
         }
         else if (ProviderCombo.IsEnabled)
         {
@@ -1776,7 +952,7 @@ public partial class MainWindow : Window
         var cancellationToken = refresh.Token;
         ModelCombo.IsEnabled = false;
         ReasoningCombo.IsEnabled = false;
-        SetQueueStatus($"Checking {provider} models…");
+        RunStatus.Text = $"Checking {provider} models…";
         try
         {
             var models = await _ai.DiscoverModelsAsync(provider, cancellationToken);
@@ -1784,7 +960,7 @@ public partial class MainWindow : Window
             ModelCombo.ItemsSource = models;
             ModelCombo.SelectedItem = models.FirstOrDefault(model => model.Id == preferredId) ?? models.FirstOrDefault();
             UpdateReasoningChoices();
-            SetQueueStatus(models.Count == 0 ? $"{provider} is not available" : "Waiting for speech");
+            RunStatus.Text = models.Count == 0 ? $"{provider} is not available" : "Waiting for speech";
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception ex)
@@ -1794,7 +970,7 @@ public partial class MainWindow : Window
             ModelCombo.ItemsSource = Array.Empty<AiModelOption>();
             ReasoningCombo.ItemsSource = Array.Empty<string>();
             UpdateFastModeChoice(null);
-            SetQueueStatus(ex.Message);
+            RunStatus.Text = ex.Message;
         }
         finally
         {
@@ -1851,12 +1027,6 @@ public partial class MainWindow : Window
     {
         if (AiOptions is null) return;
         AiOptions.IsEnabled = AiEnabledCheck.IsChecked == true;
-
-        // Agent cleanup rides on this card's provider, so it follows this switch.
-        // Read first, so the choice being restored is the one last made.
-        if (_uiReady) ReadUiIntoSettings();
-        UpdateAgentCleanupAvailability();
-        UpdateAgentStatus();
         SettingsChanged(sender, e);
     }
 
@@ -1865,8 +1035,15 @@ public partial class MainWindow : Window
         if (!_uiReady) return;
         ReadUiIntoSettings();
         _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
-        UpdateAgentStatus();
         QueueAutoSave();
+    }
+
+    private void InstructionResizeDragged(object sender, DragDeltaEventArgs e)
+    {
+        InstructionBox.Height = Math.Clamp(
+            InstructionBox.ActualHeight + e.VerticalChange,
+            InstructionBox.MinHeight,
+            InstructionBox.MaxHeight);
     }
 
     private void HotkeyCaptureMouseDown(object sender, MouseButtonEventArgs e)
@@ -1949,15 +1126,9 @@ public partial class MainWindow : Window
         if (button is null) return;
 
         var isRaw = ReferenceEquals(button, RawHotkeyCaptureButton);
-        var isAgent = ReferenceEquals(button, AgentHotkeyCaptureButton);
-        var isAbort = ReferenceEquals(button, AgentAbortHotkeyCaptureButton);
-        // Only the main dictation key is required; the rest may be unset.
-        var isOptional = isRaw || isAgent || isAbort;
-        var fieldName = isRaw ? "raw" : isAgent ? "agent" : isAbort ? "agent abort" : "main";
-        string OwnStoredValue() => isRaw ? _settings.RawHotkey
-            : isAgent ? _settings.AgentHotkey
-            : isAbort ? _settings.AgentAbortHotkey
-            : _settings.Hotkey;
+        var isOptional = isRaw;
+        var fieldName = isRaw ? "raw" : "main";
+        string OwnStoredValue() => isRaw ? _settings.RawHotkey : _settings.Hotkey;
         var text = clear ? string.Empty : hotkey?.ToString() ?? _hotkeyBeforeCapture;
 
         // Cancelling on an unassigned optional field restores its placeholder,
@@ -1968,8 +1139,7 @@ public partial class MainWindow : Window
         // any other field is refused instead of silently shadowing it.
         if (text.Length > 0)
         {
-            string[] all =
-                [_settings.Hotkey, _settings.RawHotkey, _settings.AgentHotkey, _settings.AgentAbortHotkey];
+            string[] all = [_settings.Hotkey, _settings.RawHotkey];
             var others = all.Where(other => !string.Equals(other, OwnStoredValue(), StringComparison.Ordinal));
             if (others.Any(other => string.Equals(text, other, StringComparison.OrdinalIgnoreCase)))
             {
@@ -1995,18 +1165,6 @@ public partial class MainWindow : Window
             _settings.RawHotkey = text;
             _hotkey.RawHotkey = ParseOptionalHotkey(text);
         }
-        else if (isAgent)
-        {
-            _settings.AgentHotkey = text;
-            _hotkey.AgentHotkey = ResolveAgentHotkey();
-            UpdateAgentStatus();
-        }
-        else if (isAbort)
-        {
-            _settings.AgentAbortHotkey = text;
-            _hotkey.AgentAbortHotkey = ResolveAgentAbortHotkey();
-            UpdateAgentStatus();
-        }
         else
         {
             _settings.Hotkey = text;
@@ -2021,7 +1179,7 @@ public partial class MainWindow : Window
 
     private void ResetHotkeyHint() => HotkeyHint.Text =
         "Hold a key while you speak, or tap it quickly to keep recording hands-free until you press it again. " +
-        "Click a field, then press the key you want. Delete clears an optional hotkey; Escape cancels.";
+        "Click a field, then press the key you want. Delete clears the optional hotkey; Escape cancels.";
 
     private static Key GetActualKey(KeyEventArgs e) => e.Key switch
     {
@@ -2045,61 +1203,7 @@ public partial class MainWindow : Window
             _settings.Hotkey = HotkeyCaptureButton.Content?.ToString() ?? "Right Ctrl";
             var raw = RawHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
             _settings.RawHotkey = raw == OptionalHotkeyUnsetLabel ? string.Empty : raw;
-            var agent = AgentHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
-            _settings.AgentHotkey = agent == OptionalHotkeyUnsetLabel ? string.Empty : agent;
-            var abort = AgentAbortHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
-            _settings.AgentAbortHotkey = abort == OptionalHotkeyUnsetLabel ? string.Empty : abort;
         }
-        _settings.AgentModeEnabled = AgentModeCheck.IsChecked == true;
-        // Stored blank when it is just the default folder, so a later change to
-        // what that default is still reaches anyone who never picked their own.
-        var agentFolder = AgentFolderBox.Text.Trim();
-        _settings.AgentWorkingDirectory = string.Equals(
-            agentFolder,
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            StringComparison.OrdinalIgnoreCase)
-            ? string.Empty
-            : agentFolder;
-        // Only read while they actually hold a choice. Both lists are empty for
-        // the moment before ApplySettingsToUi fills them, and reading them then
-        // would overwrite the saved choice with a fallback.
-        if (AgentModelCombo.SelectedItem is AiModelOption agentModel)
-        {
-            _settings.AgentModelId = agentModel.Id;
-        }
-        if (AgentEffortCombo.SelectedItem is string agentEffort)
-        {
-            _settings.AgentEffort = agentEffort;
-        }
-        // Only while the box is usable. Greyed out it shows unticked whatever the
-        // user actually chose, and reading it then overwrites that choice with
-        // the placeholder - the same trap the fast mode box avoids below. Asked
-        // of the box itself rather than of the AI cleanup setting, so that being
-        // greyed out for any reason is enough to leave the choice alone.
-        if (AgentCleanupCheck.IsEnabled)
-        {
-            _settings.AgentCleanupEnabled = AgentCleanupCheck.IsChecked == true;
-        }
-        _settings.AgentFinishedSoundEnabled = AgentFinishedSoundCheck.IsChecked == true;
-        // Only while it is usable, for the same reason as the cleanup box above:
-        // greyed out it reads as unticked whatever the user chose.
-        if (AgentFastModeCheck.IsEnabled)
-        {
-            _settings.AgentFastMode = AgentFastModeCheck.IsChecked == true;
-        }
-        _settings.VoiceReplyEnabled = VoiceEnabledCheck.IsChecked == true;
-        _settings.VoiceApiKey = VoiceApiKeyBox.Password.Trim();
-        // Same trap the model lists avoid: the list is empty for the moment
-        // before ApplySettingsToUi fills it, and reading it then would replace a
-        // saved voice with nothing.
-        if (VoiceCombo.SelectedItem is VoiceOption voice)
-        {
-            _settings.VoiceName = voice.Id;
-        }
-        _settings.VoiceVolume = VoiceVolumeSlider.Value;
-        // An emptied box means "no standing facts", not "give me the starter
-        // text back": someone who deliberately cleared it should stay cleared.
-        _settings.AgentInstruction = AgentInstructionBox.Text.Trim();
         // The Windows-default entry is stored as empty; a disconnected saved mic
         // keeps its real name in the list, so its name (not "default") persists.
         if (MicCombo.SelectedItem is MicrophoneDevice mic)
@@ -2115,16 +1219,6 @@ public partial class MainWindow : Window
         _tones.Muted = _settings.SoundCuesMuted;
         _settings.AiEnabled = AiEnabledCheck.IsChecked == true;
         _settings.Provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
-        // Filed under the provider the key box is still showing, which during a
-        // provider switch is the previous one — same rule as the reasoning memory.
-        if (IsApiKeyProvider(_activeProvider))
-        {
-            var cleanupKey = CleanupApiKeyBox.Password.Trim();
-            if (string.Equals(_activeProvider, AiProviderService.DeepSeek, StringComparison.OrdinalIgnoreCase))
-                _settings.DeepSeekApiKey = cleanupKey;
-            else
-                _settings.OpenRouterApiKey = cleanupKey;
-        }
         if (ModelCombo.SelectedItem is AiModelOption model)
         {
             _settings.ModelId = model.Id;
@@ -2216,11 +1310,9 @@ public partial class MainWindow : Window
         AppLog.Write($"ERROR shown to user: {message}");
         Dispatcher.Invoke(() =>
         {
-            _errorShown = true;
-            _workStatus = "Error";
+            RunStatus.Text = "Error";
             TranscriptBox.Text = message;
             _tray.SetState(TrayState.Error);
-            RefreshRunStatus();
         });
     }
 
@@ -2287,8 +1379,6 @@ public partial class MainWindow : Window
         {
             var parts = new List<string> { $"Hold or tap {_settings.Hotkey}" };
             if (!string.IsNullOrWhiteSpace(_settings.RawHotkey)) parts.Add($"raw {_settings.RawHotkey}");
-            if (_settings.AgentModeEnabled && !string.IsNullOrWhiteSpace(_settings.AgentHotkey))
-                parts.Add($"agent {_settings.AgentHotkey}");
             status = string.Join(" · ", parts);
         }
 
@@ -2334,20 +1424,10 @@ public partial class MainWindow : Window
             RunLogged("save settings on close", () => { ReadUiIntoSettings(); _settingsService.Save(_settings); });
         else
             AppLog.Write("Skipped saving settings on close: startup never completed");
-        RunLogged("cancel pending work", () =>
-        {
-            _lifetime?.Cancel();
-            _modelRefresh?.Cancel();
-            foreach (var run in _agentRuns) run.Cancel.Cancel();
-        });
-        // Cancelling above asks nicely and can lose the race with our own exit,
-        // so an agent still working is ended outright here rather than being
-        // left running with nothing on screen to stop it.
-        RunLogged("stop running AI CLI processes", ChildProcessJob.Shared.Dispose);
+        RunLogged("cancel pending work", () => { _lifetime?.Cancel(); _modelRefresh?.Cancel(); });
         RunLogged("stop update timers", () => { _updatePollTimer?.Stop(); _updateRepromptTimer?.Stop(); _autoSaveTimer?.Stop(); });
         RunLogged("stop hotkey hook", _hotkey.Dispose);
         RunLogged("stop tone player", _tones.Dispose);
-        RunLogged("stop the spoken reply", _voice.Dispose);
         RunLogged("stop audio recorder", _audio.Dispose);
         RunLogged("stop speech engine", () => _parakeet.DisposeAsync().AsTask().GetAwaiter().GetResult());
         RunLogged("remove tray icon", _tray.Dispose);
