@@ -1644,9 +1644,13 @@ public sealed partial class AiProviderService
     {
         var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT")
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        // PATHEXT candidates first and the bare name last: npm installs both an
+        // extension-less Unix shell script and a .cmd shim under the same name,
+        // and Windows cannot execute the script (error 193). Preferring the
+        // bare name is what made opencode "not installed" despite being on PATH.
         var candidates = Path.HasExtension(command)
             ? [command]
-            : extensions.Select(extension => command + extension.ToLowerInvariant()).Prepend(command);
+            : extensions.Select(extension => command + extension.ToLowerInvariant()).Append(command);
         var candidateList = candidates.ToList();
 
         var directories = GetSearchDirectories();
