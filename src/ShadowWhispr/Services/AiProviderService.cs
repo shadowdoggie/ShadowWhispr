@@ -792,13 +792,19 @@ public sealed partial class AiProviderService
         // OpenCode has no per-run system prompt flag, so — same as the Codex
         // path — the reply rules and standing facts are prepended to the
         // instruction, marked off so the model can tell the two apart.
-        arguments.Add($"""
-                       <how-to-reply>
-                       {systemPrompt}
-                       </how-to-reply>
+        //
+        // Send this through stdin, not as a positional argument. On Windows
+        // OpenCode is normally an npm .cmd shim; passing a multiline prompt
+        // containing <tags> through that command line can lose the message to
+        // cmd.exe's parsing while still exiting successfully. OpenCode reads a
+        // missing positional message from stdin, which preserves it verbatim.
+        var prompt = $"""
+                     <how-to-reply>
+                     {systemPrompt}
+                     </how-to-reply>
 
-                       {instruction}
-                       """);
+                     {instruction}
+                     """;
 
         // The key pasted in ShadowWhispr, when there is one, travels as the
         // provider's own environment variable, which OpenCode picks up without
@@ -823,7 +829,7 @@ public sealed partial class AiProviderService
         var result = await RunAsync(
             OpenCodeCommand,
             arguments,
-            standardInput: null,
+            standardInput: prompt,
             workingDirectory,
             environment,
             cancellationToken,
