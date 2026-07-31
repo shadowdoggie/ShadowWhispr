@@ -203,7 +203,13 @@ public enum HotkeyKind
     /// The optional agent hotkey: hand the transcript to a headless Claude Code
     /// session as an instruction instead of typing it anywhere.
     /// </summary>
-    Agent
+    Agent,
+
+    /// <summary>
+    /// The optional abort hotkey. The odd one out: it records nothing, and only
+    /// stops the agent session that started most recently.
+    /// </summary>
+    AgentAbort
 }
 
 public sealed class HotkeyEventArgs(HotkeyKind kind) : EventArgs
@@ -262,6 +268,7 @@ public sealed class GlobalHotkeyService : IDisposable
     private HoldHotkey _hotkey;
     private HoldHotkey? _rawHotkey;
     private HoldHotkey? _agentHotkey;
+    private HoldHotkey? _agentAbortHotkey;
     private bool _enabled = true;
 
     public GlobalHotkeyService(HoldHotkey? hotkey = null)
@@ -373,6 +380,37 @@ public sealed class GlobalHotkeyService : IDisposable
                 }
 
                 _agentHotkey = value;
+                released = ResetHeldState();
+            }
+
+            RaiseReleased(released);
+        }
+    }
+
+    /// <summary>
+    /// The optional key that aborts the newest running agent session. Null
+    /// disables it, and a binding that duplicates another one is ignored.
+    /// </summary>
+    public HoldHotkey? AgentAbortHotkey
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _agentAbortHotkey;
+            }
+        }
+        set
+        {
+            ReleasedKinds released;
+            lock (_gate)
+            {
+                if (_agentAbortHotkey == value)
+                {
+                    return;
+                }
+
+                _agentAbortHotkey = value;
                 released = ResetHeldState();
             }
 
@@ -621,7 +659,13 @@ public sealed class GlobalHotkeyService : IDisposable
                         // Let go quickly and it was a tap, so the recording stays
                         // on until the next press. Only when nothing else takes
                         // over the dictation right away.
-                        if (_heldKind is null && Stopwatch.GetElapsedTime(_heldSince) < TapThreshold)
+                        //
+                        // The abort key never latches: it records nothing, so
+                        // there is nothing to leave running - and a latch would
+                        // swallow the next keypress as the one that ends it,
+                        // making every abort cost an extra press afterwards.
+                        if (ending != HotkeyKind.AgentAbort &&
+                            _heldKind is null && Stopwatch.GetElapsedTime(_heldSince) < TapThreshold)
                         {
                             _latchedKind = ending;
                             latchedKind = ending;
@@ -692,6 +736,7 @@ public sealed class GlobalHotkeyService : IDisposable
     {
         HotkeyKind.Raw => _rawHotkey?.VirtualKey ?? 0,
         HotkeyKind.Agent => _agentHotkey?.VirtualKey ?? 0,
+        HotkeyKind.AgentAbort => _agentAbortHotkey?.VirtualKey ?? 0,
         _ => _hotkey.VirtualKey
     };
 
@@ -737,6 +782,11 @@ public sealed class GlobalHotkeyService : IDisposable
         if (_agentHotkey is HoldHotkey agent && agent != _hotkey && agent != _rawHotkey)
         {
             yield return (HotkeyKind.Agent, agent);
+        }
+        if (_agentAbortHotkey is HoldHotkey abort &&
+            abort != _hotkey && abort != _rawHotkey && abort != _agentHotkey)
+        {
+            yield return (HotkeyKind.AgentAbort, abort);
         }
     }
 

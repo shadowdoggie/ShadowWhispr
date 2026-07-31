@@ -155,15 +155,98 @@ public sealed class AgentHotkeyTests
 
         Assert.False(settings.AgentModeEnabled);
         Assert.Equal(string.Empty, settings.AgentHotkey);
+        Assert.Equal(string.Empty, settings.AgentAbortHotkey);
+    }
+
+    /// <summary>
+    /// The abort key is the odd one out: it records nothing, so it has to be
+    /// reported as its own kind rather than as another dictation key.
+    /// </summary>
+    [Fact]
+    public void TheAbortKeyReportsItsOwnKind()
+    {
+        var service = new GlobalHotkeyService(HoldHotkey.Parse("F13"))
+        {
+            AgentHotkey = HoldHotkey.Parse("F15"),
+            AgentAbortHotkey = HoldHotkey.Parse("F16"),
+            TapThreshold = TimeSpan.FromMilliseconds(150)
+        };
+
+        var events = new List<string>();
+        service.Pressed += (_, e) => events.Add($"pressed:{e.Kind}");
+        service.Released += (_, e) => events.Add($"released:{e.Kind}");
+
+        service.HandleKey(0x7F, isDown: true, isUp: false);
+        System.Threading.Thread.Sleep(250);
+        service.HandleKey(0x7F, isDown: false, isUp: true);
+
+        Assert.Equal(["pressed:AgentAbort", "released:AgentAbort"], events);
+    }
+
+    /// <summary>
+    /// Tapping the abort key must leave nothing latched. A latch would be ended
+    /// by the next keypress instead of that press doing its own job, which is
+    /// what made every abort cost an extra press afterwards.
+    /// </summary>
+    [Fact]
+    public void TappingTheAbortKeyDoesNotLatchAndCostTheNextPress()
+    {
+        var service = new GlobalHotkeyService(HoldHotkey.Parse("F13"))
+        {
+            AgentHotkey = HoldHotkey.Parse("F15"),
+            AgentAbortHotkey = HoldHotkey.Parse("F16"),
+            TapThreshold = TimeSpan.FromMilliseconds(150)
+        };
+
+        var events = new List<string>();
+        service.Pressed += (_, e) => events.Add($"pressed:{e.Kind}");
+        service.Latched += (_, e) => events.Add($"latched:{e.Kind}");
+        service.Released += (_, e) => events.Add($"released:{e.Kind}");
+
+        // A tap far quicker than the hold threshold.
+        service.HandleKey(0x7F, isDown: true, isUp: false);
+        service.HandleKey(0x7F, isDown: false, isUp: true);
+        Assert.Equal(["pressed:AgentAbort", "released:AgentAbort"], events);
+        Assert.False(service.IsHeld, "the abort key latched a recording that does not exist");
+
+        // The very next agent press has to start dictating, not be swallowed.
+        events.Clear();
+        service.HandleKey(VkF15, isDown: true, isUp: false);
+        Assert.Equal(["pressed:Agent"], events);
+    }
+
+    /// <summary>
+    /// An abort key that duplicates the agent key must stay the agent key: one
+    /// keypress cannot both queue an instruction and stop one.
+    /// </summary>
+    [Fact]
+    public void AnAbortKeyIdenticalToTheAgentKeyStaysTheAgentKey()
+    {
+        var service = new GlobalHotkeyService(HoldHotkey.Parse("F13"))
+        {
+            AgentHotkey = HoldHotkey.Parse("F15"),
+            AgentAbortHotkey = HoldHotkey.Parse("F15"),
+            TapThreshold = TimeSpan.FromMilliseconds(150)
+        };
+
+        var events = new List<string>();
+        service.Pressed += (_, e) => events.Add($"pressed:{e.Kind}");
+        service.Released += (_, e) => events.Add($"released:{e.Kind}");
+
+        service.HandleKey(VkF15, isDown: true, isUp: false);
+        System.Threading.Thread.Sleep(250);
+        service.HandleKey(VkF15, isDown: false, isUp: true);
+
+        Assert.Equal(["pressed:Agent", "released:Agent"], events);
     }
 
     [Fact]
-    public void AFreshInstallGetsOpusAtLowEffort()
+    public void AFreshInstallGetsOpusAtMediumEffort()
     {
         var settings = new AppSettings();
 
         Assert.Equal("claude-opus-5", settings.AgentModelId);
-        Assert.Equal("low", settings.AgentEffort);
+        Assert.Equal("medium", settings.AgentEffort);
 
         // The stored default has to be one the stored model actually offers,
         // or a fresh install would silently start on a different effort.
@@ -205,8 +288,8 @@ public sealed class AgentHotkeyTests
     [Theory]
     [InlineData("max", "max")]
     [InlineData("XHIGH", "xhigh")]
-    [InlineData("ultra", "low")]
-    [InlineData(null, "low")]
+    [InlineData("ultra", "medium")]
+    [InlineData(null, "medium")]
     public void AnUnknownStoredEffortFallsBackToTheModelsOwnDefault(string? stored, string expected) =>
         Assert.Equal(expected, AiProviderService.NormalizeAgentEffort("claude-opus-5", stored));
 

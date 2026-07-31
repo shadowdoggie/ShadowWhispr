@@ -18,6 +18,13 @@ public sealed class AppSettings
     public string AgentHotkey { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional key that aborts the newest running agent session. Separate from
+    /// <see cref="AgentHotkey"/> because that one queues another instruction, so
+    /// it cannot also mean "stop". Empty means "not configured".
+    /// </summary>
+    public string AgentAbortHotkey { get; set; } = string.Empty;
+
+    /// <summary>
     /// The name of the microphone to record from, exactly as Windows lists it.
     /// Empty means "follow the Windows default microphone". Stored by name so
     /// the choice survives device numbers reshuffling between sessions.
@@ -144,7 +151,40 @@ public sealed class AppSettings
     /// The effort level agent mode runs at, kept apart from
     /// <see cref="Reasoning"/> for the same reason as the model.
     /// </summary>
-    public string AgentEffort { get; set; } = "low";
+    public string AgentEffort { get; set; } = "medium";
+
+    /// <summary>
+    /// Which generation of agent defaults this settings file has been through.
+    /// Left at zero by every file written before the idea existed, which is how
+    /// <see cref="SettingsService"/> knows to apply the current defaults once
+    /// and then leave the user's choices alone.
+    /// </summary>
+    public int AgentDefaultsVersion { get; set; }
+
+    /// <summary>
+    /// The agent defaults generation this build ships. Bumped only when a new
+    /// release should move everyone onto a different model or effort, not
+    /// whenever the defaults happen to be edited.
+    /// </summary>
+    public const int CurrentAgentDefaultsVersion = 1;
+
+    /// <summary>
+    /// Puts this settings file on the current agent defaults, and reports
+    /// whether anything changed. Applied once per generation: agent mode is new
+    /// enough that moving everyone onto the model and effort worth using is
+    /// worth more than preserving a choice made while it was being built, but
+    /// doing it on every launch would be overriding the user rather than
+    /// updating them.
+    /// </summary>
+    public bool ApplyCurrentAgentDefaults()
+    {
+        if (AgentDefaultsVersion >= CurrentAgentDefaultsVersion) return false;
+
+        AgentDefaultsVersion = CurrentAgentDefaultsVersion;
+        AgentModelId = "claude-opus-5";
+        AgentEffort = "medium";
+        return true;
+    }
 
     /// <summary>
     /// Standing facts handed to every agent session on top of its own system

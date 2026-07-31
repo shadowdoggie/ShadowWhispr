@@ -82,12 +82,19 @@ public partial class MainWindow : Window
     /// </summary>
     private bool _errorShown;
 
+    /// <summary>One agent session that is currently running.</summary>
+    private sealed record AgentRun(int Number, CancellationTokenSource Cancel);
+
     /// <summary>
-    /// Cancels the agent run currently in flight, or null when none is. Held so
-    /// that pressing the agent key again stops what it is doing rather than
-    /// queueing a second instruction behind it.
+    /// The agent sessions in flight, oldest first. Agent instructions queue like
+    /// dictations do, but unlike dictations they do not wait for each other:
+    /// each starts its own session as soon as it has been transcribed, so
+    /// several can be working at once.
     /// </summary>
-    private CancellationTokenSource? _agentRun;
+    private readonly List<AgentRun> _agentRuns = [];
+
+    /// <summary>Numbers the runs, so the transcript can say which one it is reporting on.</summary>
+    private int _agentRunCounter;
 
     /// <summary>True when the selected provider's CLI says it is already signed in.</summary>
     private bool _providerLoggedIn;
@@ -153,6 +160,7 @@ public partial class MainWindow : Window
             _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
             _hotkey.RawHotkey = ParseOptionalHotkey(_settings.RawHotkey);
             _hotkey.AgentHotkey = ResolveAgentHotkey();
+            _hotkey.AgentAbortHotkey = ResolveAgentAbortHotkey();
             _hotkey.Start();
         }
         catch (Exception ex)
@@ -564,22 +572,12 @@ public partial class MainWindow : Window
         if (_audio.IsRecording) return;
         if (SetupBanner.Visibility == Visibility.Visible) return;
 
-        // The agent key doubles as a stop button. An agent run can take minutes
-        // and act on the machine the whole time, so the useful thing to do while
-        // one is going is to call it off - not to line up a second instruction
-        // behind it that cannot start until it finishes anyway.
-        if (e.Kind == HotkeyKind.Agent && _agentRun is { } running)
+        // The abort key records nothing. Each press stops the agent session that
+        // started most recently, so pressing it repeatedly walks back through
+        // what is running, newest first, to the oldest.
+        if (e.Kind == HotkeyKind.AgentAbort)
         {
-            AppLog.Write("Agent run stopped by pressing the agent key again");
-            _tones.PlayCancelled();
-            try
-            {
-                running.Cancel();
-            }
-            catch (ObjectDisposedException)
-            {
-                // It finished on its own between the check and the cancel.
-            }
+            AbortNewestAgentRun();
             return;
         }
         try
@@ -587,7 +585,7 @@ public partial class MainWindow : Window
             _activeHotkeyKind = e.Kind;
             _tapLatched = false;
             _errorShown = false;
-            _tones.PlayPressed();
+            if (e.Kind == HotkeyKind.Agent) _tones.PlayAgentPressed(); else _tones.PlayPressed();
             _insertionTarget = _inserter.CaptureTarget();
             await _audio.StartAsync(_lifetime?.Token ?? default);
             RefreshRunStatus();
@@ -642,7 +640,7 @@ public partial class MainWindow : Window
             // Sounded before the recorder is closed, not after: stopping flushes
             // the recording to disk, and waiting for that put an audible lag
             // between letting the key go and hearing the cue.
-            _tones.PlayReleased();
+            if (kind == HotkeyKind.Agent) _tones.PlayAgentReleased(); else _tones.PlayReleased();
             var recording = await _audio.StopAsync(_lifetime?.Token ?? default);
             if (string.IsNullOrWhiteSpace(recording))
             {
@@ -720,9 +718,12 @@ public partial class MainWindow : Window
             // The agent hotkey is not dictation at all: the transcript is an
             // instruction for Claude Code, and its answer is only ever shown
             // here. Nothing is typed into the window the user was in.
+            // Deliberately not awaited: agent instructions queue like dictations
+            // but do not wait for each other, so the next one can be transcribed
+            // and sent while this session is still working.
             if (job.Kind == HotkeyKind.Agent)
             {
-                await RunAgentJobAsync(text, cancellationToken);
+                _ = RunAgentJobAsync(text, cancellationToken);
                 return;
             }
 
@@ -774,14 +775,17 @@ public partial class MainWindow : Window
     private async Task RunAgentJobAsync(string instruction, CancellationToken cancellationToken)
     {
         var folder = _settings.ResolveAgentWorkingDirectory();
-        AppLog.Write($"Agent instruction received ({instruction.Length} characters), folder '{folder}'");
-        TranscriptBox.Text = $"→ {instruction}\n\nWorking… (press the agent key again to stop)";
+        var number = ++_agentRunCounter;
+        AppLog.Write($"Agent run #{number} received ({instruction.Length} characters), folder '{folder}'");
 
-        // Its own token, linked to the app's: pressing the agent key again
-        // cancels this run without touching anything else that is in flight.
+        // Its own token, linked to the app's, so aborting this run leaves every
+        // other session that is working alone.
         using var runCancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _agentRun = runCancel;
+        var run = new AgentRun(number, runCancel);
+        _agentRuns.Add(run);
         var runToken = runCancel.Token;
+        ShowAgentProgress(number, instruction, "Working…");
+
         try
         {
             // Optional: tidy the spoken instruction before the agent acts on it.
@@ -818,7 +822,8 @@ public partial class MainWindow : Window
                 _settings.AgentEffort,
                 _settings.AgentInstruction,
                 runToken);
-            TranscriptBox.Text = $"→ {instruction}\n\n{reply}";
+            _agentRuns.Remove(run);
+            ShowAgentProgress(number, instruction, reply);
             SetQueueStatus("Agent finished");
 
             // Only on a run that finished by itself. A stop and a failure each
@@ -832,23 +837,34 @@ public partial class MainWindow : Window
             // tell. Only a stop the user asked for gets reported.
             if (cancellationToken.IsCancellationRequested) return;
 
-            AppLog.Write("Agent run cancelled by the user");
-            TranscriptBox.Text = $"→ {instruction}\n\nStopped. Anything it had already done stays done.";
+            AppLog.Write($"Agent run #{number} stopped by the user");
+            ShowAgentProgress(number, instruction, "Stopped. Anything it had already done stays done.");
             SetQueueStatus("Agent stopped");
         }
         catch (Exception ex)
         {
-            AppLog.Write("Agent run failed", ex);
-            TranscriptBox.Text = $"→ {instruction}\n\nAgent failed: {ex.Message}";
+            AppLog.Write($"Agent run #{number} failed", ex);
+            ShowAgentProgress(number, instruction, $"Agent failed: {ex.Message}");
             _errorShown = true;
             _tray.SetState(TrayState.Error);
             SetQueueStatus("Agent failed");
         }
         finally
         {
-            _agentRun = null;
+            // Already gone when this run was the one aborted, and removing it
+            // twice is harmless.
+            _agentRuns.Remove(run);
+            RefreshRunStatus();
         }
     }
+
+    /// <summary>
+    /// Shows one agent run's state in the transcript box. Numbered, because with
+    /// several running at once the reply that lands is not necessarily for the
+    /// instruction you spoke last.
+    /// </summary>
+    private void ShowAgentProgress(int number, string instruction, string body) =>
+        Dispatcher.Invoke(() => TranscriptBox.Text = $"Agent #{number}  →  {instruction}\n\n{body}");
 
     /// <summary>
     /// Records the latest processing message and shows it. While the user is
@@ -887,15 +903,22 @@ public partial class MainWindow : Window
             return;
         }
 
-        var waiting = _jobs.Count;
-        RunStatus.Text = waiting > 0 ? $"{_workStatus} · {waiting} waiting" : _workStatus;
+        var parts = new List<string> { _workStatus };
+        if (_jobs.Count > 0) parts.Add($"{_jobs.Count} waiting");
+        // Agent sessions run alongside each other, so how many are working is
+        // the one thing the pill cannot work out from the queue length.
+        if (_agentRuns.Count > 0)
+        {
+            parts.Add(_agentRuns.Count == 1 ? "1 agent running" : $"{_agentRuns.Count} agents running");
+        }
+        RunStatus.Text = string.Join(" · ", parts);
 
         // An error stays on screen until the next recording clears it; anything
         // else would replace the only report the user gets with a cheerful
         // "Ready" a moment later.
         if (_errorShown) return;
 
-        if (_busy || waiting > 0) _tray.SetState(TrayState.Working);
+        if (_busy || _jobs.Count > 0 || _agentRuns.Count > 0) _tray.SetState(TrayState.Working);
         else if (_parakeet.IsReady) _tray.SetState(TrayState.Ready);
     }
 
@@ -912,6 +935,9 @@ public partial class MainWindow : Window
         AgentHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.AgentHotkey)
             ? OptionalHotkeyUnsetLabel
             : _settings.AgentHotkey;
+        AgentAbortHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.AgentAbortHotkey)
+            ? OptionalHotkeyUnsetLabel
+            : _settings.AgentAbortHotkey;
         AgentModeCheck.IsChecked = _settings.AgentModeEnabled;
         AgentFolderBox.Text = _settings.ResolveAgentWorkingDirectory();
         AgentOptions.IsEnabled = _settings.AgentModeEnabled;
@@ -959,9 +985,40 @@ public partial class MainWindow : Window
                      $"(key '{(_settings.AgentHotkey.Length == 0 ? "(none)" : _settings.AgentHotkey)}', " +
                      $"folder '{_settings.ResolveAgentWorkingDirectory()}')");
         _hotkey.AgentHotkey = ResolveAgentHotkey();
+        _hotkey.AgentAbortHotkey = ResolveAgentAbortHotkey();
         UpdateAgentStatus();
         UpdateTrayStatus();
         QueueAutoSave();
+    }
+
+    /// <summary>
+    /// Stops the agent session that started most recently. Newest first because
+    /// that is the one you just changed your mind about; the older ones have
+    /// been working longer and are more likely to be wanted.
+    /// </summary>
+    private void AbortNewestAgentRun()
+    {
+        if (_agentRuns.Count == 0)
+        {
+            AppLog.Write("Abort key pressed with no agent running");
+            SetQueueStatus("Nothing to stop");
+            return;
+        }
+
+        var newest = _agentRuns[^1];
+        _agentRuns.RemoveAt(_agentRuns.Count - 1);
+        AppLog.Write($"Aborting agent run #{newest.Number}; {_agentRuns.Count} still running");
+        _tones.PlayCancelled();
+        try
+        {
+            newest.Cancel.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // It finished on its own between being picked and being cancelled.
+        }
+
+        RefreshRunStatus();
     }
 
     private void AgentModelChanged(object sender, SelectionChangedEventArgs e)
@@ -1046,6 +1103,10 @@ public partial class MainWindow : Window
     private HoldHotkey? ResolveAgentHotkey() =>
         _settings.AgentModeEnabled ? ParseOptionalHotkey(_settings.AgentHotkey) : null;
 
+    /// <summary>The abort binding, for the same reason and on the same terms.</summary>
+    private HoldHotkey? ResolveAgentAbortHotkey() =>
+        _settings.AgentModeEnabled ? ParseOptionalHotkey(_settings.AgentAbortHotkey) : null;
+
     /// <summary>
     /// Says in one line what agent mode will actually do when the key is
     /// pressed, including the two ways it can be switched on but inert: no key
@@ -1080,12 +1141,17 @@ public partial class MainWindow : Window
             ? $" What you say is tidied by {_settings.Provider} first."
             : string.Empty;
 
+        var abort = string.IsNullOrWhiteSpace(_settings.AgentAbortHotkey)
+            ? " Assign an abort key to be able to stop one."
+            : $" {_settings.AgentAbortHotkey} stops the one that started most recently, so pressing it again " +
+              "and again works back through them.";
+
         AgentStatus.Text =
             $"Hold or tap {_settings.AgentHotkey} and say what you want done. Every press starts a brand new " +
             $"{modelName} session at " +
             $"{AiProviderService.NormalizeAgentEffort(_settings.AgentModelId, _settings.AgentEffort)} effort in " +
-            $"{folder} — it remembers nothing from the last one.{cleanup} Press the key again while it is " +
-            "working to stop it. The reply appears under \"Last transcript\" and is never pasted anywhere.";
+            $"{folder} — it remembers nothing from the last one, and several can work at once.{cleanup}{abort} " +
+            "Replies appear under \"Last transcript\" and are never pasted anywhere.";
     }
 
     // --- Microphone selection ---------------------------------------------
@@ -1476,11 +1542,13 @@ public partial class MainWindow : Window
 
         var isRaw = ReferenceEquals(button, RawHotkeyCaptureButton);
         var isAgent = ReferenceEquals(button, AgentHotkeyCaptureButton);
-        // Only the main dictation key is required; the other two may be unset.
-        var isOptional = isRaw || isAgent;
-        var fieldName = isRaw ? "raw" : isAgent ? "agent" : "main";
+        var isAbort = ReferenceEquals(button, AgentAbortHotkeyCaptureButton);
+        // Only the main dictation key is required; the rest may be unset.
+        var isOptional = isRaw || isAgent || isAbort;
+        var fieldName = isRaw ? "raw" : isAgent ? "agent" : isAbort ? "agent abort" : "main";
         string OwnStoredValue() => isRaw ? _settings.RawHotkey
             : isAgent ? _settings.AgentHotkey
+            : isAbort ? _settings.AgentAbortHotkey
             : _settings.Hotkey;
         var text = clear ? string.Empty : hotkey?.ToString() ?? _hotkeyBeforeCapture;
 
@@ -1492,7 +1560,8 @@ public partial class MainWindow : Window
         // any other field is refused instead of silently shadowing it.
         if (text.Length > 0)
         {
-            string[] all = [_settings.Hotkey, _settings.RawHotkey, _settings.AgentHotkey];
+            string[] all =
+                [_settings.Hotkey, _settings.RawHotkey, _settings.AgentHotkey, _settings.AgentAbortHotkey];
             var others = all.Where(other => !string.Equals(other, OwnStoredValue(), StringComparison.Ordinal));
             if (others.Any(other => string.Equals(text, other, StringComparison.OrdinalIgnoreCase)))
             {
@@ -1522,6 +1591,12 @@ public partial class MainWindow : Window
         {
             _settings.AgentHotkey = text;
             _hotkey.AgentHotkey = ResolveAgentHotkey();
+            UpdateAgentStatus();
+        }
+        else if (isAbort)
+        {
+            _settings.AgentAbortHotkey = text;
+            _hotkey.AgentAbortHotkey = ResolveAgentAbortHotkey();
             UpdateAgentStatus();
         }
         else
@@ -1564,6 +1639,8 @@ public partial class MainWindow : Window
             _settings.RawHotkey = raw == OptionalHotkeyUnsetLabel ? string.Empty : raw;
             var agent = AgentHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
             _settings.AgentHotkey = agent == OptionalHotkeyUnsetLabel ? string.Empty : agent;
+            var abort = AgentAbortHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
+            _settings.AgentAbortHotkey = abort == OptionalHotkeyUnsetLabel ? string.Empty : abort;
         }
         _settings.AgentModeEnabled = AgentModeCheck.IsChecked == true;
         // Stored blank when it is just the default folder, so a later change to
@@ -1815,7 +1892,12 @@ public partial class MainWindow : Window
             RunLogged("save settings on close", () => { ReadUiIntoSettings(); _settingsService.Save(_settings); });
         else
             AppLog.Write("Skipped saving settings on close: startup never completed");
-        RunLogged("cancel pending work", () => { _lifetime?.Cancel(); _modelRefresh?.Cancel(); _agentRun?.Cancel(); });
+        RunLogged("cancel pending work", () =>
+        {
+            _lifetime?.Cancel();
+            _modelRefresh?.Cancel();
+            foreach (var run in _agentRuns) run.Cancel.Cancel();
+        });
         // Cancelling above asks nicely and can lose the race with our own exit,
         // so an agent still working is ended outright here rather than being
         // left running with nothing on screen to stop it.

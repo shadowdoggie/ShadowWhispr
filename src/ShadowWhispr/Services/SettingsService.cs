@@ -20,16 +20,47 @@ public sealed class SettingsService
 
     public AppSettings Load()
     {
+        AppSettings settings;
         try
         {
-            return File.Exists(_path)
+            settings = File.Exists(_path)
                 ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), JsonOptions) ?? new AppSettings()
                 : new AppSettings();
         }
         catch (Exception exception)
         {
             AppLog.Write($"Settings file could not be read ({_path}); using defaults", exception);
-            return new AppSettings();
+            settings = new AppSettings();
+        }
+
+        // A fresh install already has the current defaults; an existing one is
+        // moved onto them once, here, rather than being left on whatever agent
+        // mode happened to be set to while it was being built.
+        if (settings.ApplyCurrentAgentDefaults())
+        {
+            AppLog.Write(
+                $"Applied agent defaults v{AppSettings.CurrentAgentDefaultsVersion}: " +
+                $"{settings.AgentModelId} at {settings.AgentEffort} effort");
+            TrySave(settings);
+        }
+
+        return settings;
+    }
+
+    /// <summary>
+    /// Writes settings without letting a failure stop the app from starting:
+    /// the migration above is already applied in memory, so the worst a failed
+    /// write costs is applying it again next launch.
+    /// </summary>
+    private void TrySave(AppSettings settings)
+    {
+        try
+        {
+            Save(settings);
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write("Could not save settings after applying the agent defaults", exception);
         }
     }
 

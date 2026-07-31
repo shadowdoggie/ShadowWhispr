@@ -66,7 +66,7 @@ public sealed partial class AiProviderService
     /// which says nothing about how hard a desktop task should be thought
     /// through.
     /// </summary>
-    public const string DefaultAgentEffort = "low";
+    public const string DefaultAgentEffort = "medium";
 
     /// <summary>
     /// The effort levels agent mode offers, hardest last. Declared before

@@ -57,6 +57,17 @@ public sealed class TonePlayer : IDisposable
     public void PlayReleased() => Play(CreateFallingCue());
 
     /// <summary>
+    /// Starting an agent dictation. Two notes at the same pitch rather than a
+    /// step up or down: handing a task to Claude Code and dictating text are
+    /// different enough that their cues should not be two versions of one sound,
+    /// and a flat double blip is unmistakable against a moving pair.
+    /// </summary>
+    public void PlayAgentPressed() => Play(CreateCue(volume: 0.17, 900, 900));
+
+    /// <summary>Ending an agent dictation: the same double blip, lower.</summary>
+    public void PlayAgentReleased() => Play(CreateCue(volume: 0.15, 540, 540));
+
+    /// <summary>
     /// The cue for calling off an agent run. Three notes rather than two, lower
     /// and walking further down: stopping the agent and finishing a dictation
     /// are very different things, and a cue that merely resembled the other one

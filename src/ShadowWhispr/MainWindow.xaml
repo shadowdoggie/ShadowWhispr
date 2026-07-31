@@ -461,22 +461,22 @@
                                        Margin="1,16,0,7" />
                             <TextBlock Grid.Row="2" Grid.Column="2" Text="AGENT EFFORT"
                                        Style="{StaticResource FieldLabel}" Margin="1,16,0,7" />
-                            <TextBlock Grid.Row="2" Grid.Column="4" Text="BEFORE SENDING"
+                            <TextBlock Grid.Row="2" Grid.Column="4" Text="ABORT KEY — STOP THE NEWEST RUN"
                                        Style="{StaticResource FieldLabel}" Margin="1,16,0,7" />
 
                             <ComboBox x:Name="AgentModelCombo" Grid.Row="3" DisplayMemberPath="DisplayName"
                                       SelectionChanged="AgentModelChanged" />
                             <ComboBox x:Name="AgentEffortCombo" Grid.Row="3" Grid.Column="2"
                                       SelectionChanged="AgentModelChanged" />
-                            <Border Grid.Row="3" Grid.Column="4" Background="#12FFFFFF"
-                                    BorderBrush="{StaticResource LineBrush}"
-                                    BorderThickness="1" CornerRadius="9" Padding="12,0">
-                                <CheckBox x:Name="AgentCleanupCheck" Content="Clean up what I said"
-                                          FontSize="12.5" VerticalAlignment="Center"
-                                          Checked="AgentSettingsChanged"
-                                          Unchecked="AgentSettingsChanged"
-                                          ToolTip="Runs the spoken instruction through your AI cleanup provider first, then hands the tidied version to the agent." />
-                            </Border>
+                            <Button x:Name="AgentAbortHotkeyCaptureButton" Grid.Row="3" Grid.Column="4"
+                                    Content="Not set"
+                                    Style="{StaticResource SecondaryButton}"
+                                    HorizontalContentAlignment="Left"
+                                    ToolTip="Each press stops the agent session that started most recently, so pressing it repeatedly works back through everything that is running."
+                                    PreviewMouseLeftButtonDown="HotkeyCaptureMouseDown"
+                                    PreviewKeyDown="HotkeyCaptureKeyDown"
+                                    PreviewKeyUp="HotkeyCaptureKeyUp"
+                                    LostKeyboardFocus="HotkeyCaptureLostFocus" />
 
                             <StackPanel Grid.Row="4" Grid.ColumnSpan="5" Margin="0,20,0,0">
                                 <TextBlock Text="STANDING FACTS FOR EVERY AGENT SESSION"
@@ -506,7 +506,11 @@
                                         </Thumb.Template>
                                     </Thumb>
                                 </Grid>
-                                <CheckBox x:Name="AgentFinishedSoundCheck" Margin="1,14,0,0" FontSize="12.5"
+                                <CheckBox x:Name="AgentCleanupCheck" Margin="1,14,0,0" FontSize="12.5"
+                                          Content="Clean up what I said before sending it"
+                                          Checked="AgentSettingsChanged" Unchecked="AgentSettingsChanged"
+                                          ToolTip="Runs the spoken instruction through your AI cleanup provider first, then hands the tidied version to the agent." />
+                                <CheckBox x:Name="AgentFinishedSoundCheck" Margin="1,10,0,0" FontSize="12.5"
                                           Content="Play a quiet chime when a run finishes"
                                           Checked="AgentSettingsChanged" Unchecked="AgentSettingsChanged"
                                           ToolTip="A run can take minutes; without this the only way to know it is done is to keep checking this window. Turned off entirely by 'Turn off the start and stop sounds'." />
