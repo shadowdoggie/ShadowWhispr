@@ -461,8 +461,8 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="*" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="1*" />
@@ -536,7 +536,14 @@
                                               Checked="AgentSettingsChanged" Unchecked="AgentSettingsChanged" />
                                 </StackPanel>
 
-                                <Grid Grid.Row="4" Grid.ColumnSpan="5" Margin="0,20,0,0">
+<!-- Above the standing-facts editor on purpose: that editor stretches
+                                     to fill the page, so anything under it is only seen after scrolling
+                                     to the very bottom — and this line is what says whether agent mode
+                                     will work at all. -->
+                                <TextBlock x:Name="AgentStatus" Grid.Row="4" Grid.ColumnSpan="5" Margin="1,16,0,0"
+                                           Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
+
+                                <Grid Grid.Row="5" Grid.ColumnSpan="5" Margin="0,20,0,0">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -550,9 +557,6 @@
                                     <TextBox x:Name="AgentInstructionBox" Grid.Row="2" Style="{StaticResource EditorBox}"
                                              FontSize="14.5" TextChanged="AgentSettingsChanged" />
                                 </Grid>
-
-                                <TextBlock x:Name="AgentStatus" Grid.Row="5" Grid.ColumnSpan="5" Margin="1,12,0,0"
-                                           Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
                             </Grid>
                         </Grid>
                     </ScrollViewer>
