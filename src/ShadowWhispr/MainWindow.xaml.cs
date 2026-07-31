@@ -29,6 +29,7 @@ public partial class MainWindow : Window
     private readonly GlobalHotkeyService _hotkey = new();
     private readonly AudioRecorderService _audio = new();
     private readonly TonePlayer _tones = new();
+    private readonly GeminiVoiceService _voice = new();
     private readonly TextInsertionService _inserter = new();
     private readonly UpdateService _updates = new();
     private readonly TrayIconService _tray = new();
@@ -118,6 +119,9 @@ public partial class MainWindow : Window
         _hotkey.Latched += OnHotkeyLatched;
         _audio.RecordingFailed += (_, ex) => AppLog.Write("Audio recording failed", ex);
         _tones.PlaybackFailed += (_, ex) => AppLog.Write("Cue tone playback failed", ex);
+        // Logged only. The agent run itself already succeeded and its reply is on
+        // screen, so a failure to read it out loud is not worth interrupting for.
+        _voice.SpeechFailed += (_, ex) => AppLog.Write("Speaking the agent reply failed", ex);
         _speechSetup.Progress += OnSetupProgress;
         _tray.OpenRequested += (_, _) => ShowFromTray();
         _tray.QuitRequested += (_, _) => RequestExit();
@@ -815,21 +819,37 @@ public partial class MainWindow : Window
             }
 
             SetQueueStatus("Claude Code is working…");
+            var speaking = _settings.WillSpeakAgentReply;
             var reply = await _ai.RunAgentAsync(
                 instruction,
                 folder,
                 _settings.AgentModelId,
                 _settings.AgentEffort,
                 _settings.AgentInstruction,
+                speaking,
                 runToken);
             _agentRuns.Remove(run);
-            ShowAgentProgress(number, instruction, reply);
+
+            // The spoken half is split off whether or not it will be read out:
+            // the tag is only ever asked for when speaking is on, but a model
+            // that adds one uninvited must not leave it on screen.
+            var (shown, spoken) = AiProviderService.SplitAgentReply(reply);
+            ShowAgentProgress(number, instruction, shown);
             SetQueueStatus("Agent finished");
 
             // Only on a run that finished by itself. A stop and a failure each
             // have their own signal already, and a "done" chime after either
             // would be telling you the opposite of what happened.
             if (_settings.AgentFinishedSoundEnabled) _tones.PlayFinished();
+
+            // Not awaited: the reply is already on screen and the run is done.
+            // Waiting here would keep the run in the list for as long as it
+            // takes to read out, and the abort key would then stop a session
+            // that had already finished.
+            if (speaking)
+            {
+                _ = SpeakReplyAsync(number, spoken, cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -855,6 +875,39 @@ public partial class MainWindow : Window
             // twice is harmless.
             _agentRuns.Remove(run);
             RefreshRunStatus();
+        }
+    }
+
+    /// <summary>
+    /// Reads a finished run's reply out loud. Every failure is swallowed after
+    /// being logged: the user has already got what they asked for, and a popup
+    /// about the voice would be interrupting a job that went fine.
+    /// </summary>
+    private async Task SpeakReplyAsync(int number, string spoken, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(spoken))
+        {
+            AppLog.Write($"Agent run #{number} had nothing worth speaking");
+            return;
+        }
+
+        try
+        {
+            AppLog.Write($"Speaking the reply to agent run #{number} ({spoken.Length} characters)");
+            await _voice.SpeakAsync(
+                spoken,
+                _settings.VoiceApiKey,
+                _settings.VoiceName,
+                _settings.VoiceVolume,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            AppLog.Write($"Speaking the reply to agent run #{number} was stopped");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write($"Speaking the reply to agent run #{number} failed", ex);
         }
     }
 
@@ -949,6 +1002,13 @@ public partial class MainWindow : Window
         UpdateAgentEffortChoices();
         AgentFinishedSoundCheck.IsChecked = _settings.AgentFinishedSoundEnabled;
         AgentInstructionBox.Text = _settings.AgentInstruction;
+        VoiceEnabledCheck.IsChecked = _settings.VoiceReplyEnabled;
+        VoiceOptions.IsEnabled = _settings.VoiceReplyEnabled;
+        VoiceApiKeyBox.Password = _settings.VoiceApiKey;
+        VoiceCombo.ItemsSource = GeminiVoiceService.Voices;
+        VoiceCombo.SelectedItem = GeminiVoiceService.Voices.First(voice =>
+            voice.Id == GeminiVoiceService.NormalizeVoice(_settings.VoiceName));
+        VoiceVolumeSlider.Value = Math.Clamp(_settings.VoiceVolume, VoiceVolumeSlider.Minimum, VoiceVolumeSlider.Maximum);
         RefreshMicrophoneList(_settings.Microphone);
         _audio.PreferredDeviceName = _settings.Microphone;
         KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
@@ -973,6 +1033,165 @@ public partial class MainWindow : Window
         UpdateAgentCleanupAvailability();
         _uiReady = true;
         UpdateAgentStatus();
+        UpdateVoiceStatus();
+    }
+
+    // --- Category tabs -----------------------------------------------------
+
+    /// <summary>
+    /// Shows the page whose tab was just picked. Every page is built at startup
+    /// and only its visibility changes, so the controls the rest of this class
+    /// reads and writes exist whichever tab happens to be open.
+    /// </summary>
+    private void NavChanged(object sender, RoutedEventArgs e)
+    {
+        // Fires once for each tab during InitializeComponent, before the pages
+        // themselves exist.
+        if (PageDictation is null) return;
+
+        PageDictation.Visibility = Visible(NavDictation);
+        PageCleanup.Visibility = Visible(NavCleanup);
+        PageAgent.Visibility = Visible(NavAgent);
+        PageVoice.Visibility = Visible(NavVoice);
+        PageApp.Visibility = Visible(NavApp);
+        return;
+
+        static Visibility Visible(System.Windows.Controls.Primitives.ToggleButton tab) =>
+            tab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // --- Spoken replies ----------------------------------------------------
+
+    private void VoiceToggled(object sender, RoutedEventArgs e)
+    {
+        if (VoiceOptions is null) return;
+        VoiceOptions.IsEnabled = VoiceEnabledCheck.IsChecked == true;
+        if (!_uiReady) return;
+
+        ReadUiIntoSettings();
+        AppLog.Write($"Spoken replies set to {_settings.VoiceReplyEnabled} " +
+                     $"(voice {_settings.VoiceName}, key {(string.IsNullOrWhiteSpace(_settings.VoiceApiKey) ? "not set" : "set")})");
+
+        // Turned off mid-sentence means stop talking now, not after this one.
+        if (!_settings.VoiceReplyEnabled) _voice.Stop();
+
+        UpdateVoiceStatus();
+        QueueAutoSave();
+    }
+
+    private void VoiceSettingChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        AppLog.Write($"Reply voice set to {_settings.VoiceName}");
+        UpdateVoiceStatus();
+        QueueAutoSave();
+    }
+
+    private void VoiceKeyChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        // Never logged, only whether there is one. It is a credential.
+        UpdateVoiceStatus();
+        QueueAutoSave();
+    }
+
+    private void VoiceVolumeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        // Runs before the rest of the UI exists, because the slider's XAML sets
+        // a starting value.
+        if (VoiceVolumeText is null) return;
+        VoiceVolumeText.Text = $"{VoiceVolumeSlider.Value * 100:0}%";
+        if (!_uiReady) return;
+
+        ReadUiIntoSettings();
+        QueueAutoSave();
+    }
+
+    /// <summary>
+    /// Reads a sample line in the chosen voice, so the user can pick one without
+    /// having to trigger a real agent run to hear it.
+    /// </summary>
+    private async void VoicePreviewClicked(object sender, RoutedEventArgs e)
+    {
+        ReadUiIntoSettings();
+
+        if (string.IsNullOrWhiteSpace(_settings.VoiceApiKey))
+        {
+            VoiceStatus.Text = "Paste your Google AI Studio API key first.";
+            return;
+        }
+
+        VoicePreviewButton.IsEnabled = false;
+        VoiceStatus.Text = $"Asking {_settings.VoiceName} to say something…";
+        try
+        {
+            AppLog.Write($"Previewing the {_settings.VoiceName} voice");
+            await _voice.SpeakAsync(
+                VoicePreviewLine,
+                _settings.VoiceApiKey,
+                _settings.VoiceName,
+                _settings.VoiceVolume,
+                _lifetime?.Token ?? default);
+            VoiceStatus.Text = $"That was {_settings.VoiceName}.";
+        }
+        catch (OperationCanceledException)
+        {
+            VoiceStatus.Text = "Preview stopped.";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("Voice preview failed", ex);
+            VoiceStatus.Text = $"Preview failed: {ex.Message}";
+        }
+        finally
+        {
+            VoicePreviewButton.IsEnabled = true;
+        }
+    }
+
+    private void VoiceStopClicked(object sender, RoutedEventArgs e)
+    {
+        _voice.Stop();
+        VoiceStatus.Text = "Stopped.";
+    }
+
+    /// <summary>
+    /// The preview line. Deliberately the shape of a real reply, so the voice is
+    /// judged on the kind of sentence it will actually be reading.
+    /// </summary>
+    private const string VoicePreviewLine =
+        "All done — I tidied up those screenshots and put them in a folder on your desktop.";
+
+    /// <summary>
+    /// Says whether replies will actually be spoken, and if not, why not. The
+    /// same job the agent status line does: a switch that is on but silent is
+    /// worse than one that explains itself.
+    /// </summary>
+    private void UpdateVoiceStatus()
+    {
+        if (VoiceHint is null) return;
+
+        if (!_settings.VoiceReplyEnabled)
+        {
+            VoiceHint.Text = "Spoken replies are off. Agent replies will only appear as text.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.VoiceApiKey))
+        {
+            VoiceHint.Text = "Add a Google AI Studio API key above — without one there is nothing to speak with.";
+            return;
+        }
+
+        if (!_settings.AgentModeEnabled)
+        {
+            VoiceHint.Text = "Ready, but agent mode is switched off, so there are no replies to read out yet.";
+            return;
+        }
+
+        VoiceHint.Text = $"Ready. {_settings.VoiceName} will read out a short summary when an agent run finishes.";
     }
 
     // --- Agent mode --------------------------------------------------------
@@ -990,6 +1209,9 @@ public partial class MainWindow : Window
         _hotkey.AgentHotkey = ResolveAgentHotkey();
         _hotkey.AgentAbortHotkey = ResolveAgentAbortHotkey();
         UpdateAgentStatus();
+        // The voice page's summary mentions agent mode, so it goes stale when
+        // agent mode is switched from here.
+        UpdateVoiceStatus();
         UpdateTrayStatus();
         QueueAutoSave();
     }
@@ -1001,8 +1223,21 @@ public partial class MainWindow : Window
     /// </summary>
     private void AbortNewestAgentRun()
     {
+        // Speech is always stopped, even when a run is also being aborted: a
+        // reply still being read out is the most obvious thing the abort key
+        // could be aimed at, and leaving it talking would look broken.
+        var wasSpeaking = _voice.IsSpeaking;
+        _voice.Stop();
+
         if (_agentRuns.Count == 0)
         {
+            if (wasSpeaking)
+            {
+                AppLog.Write("Abort key stopped a reply that was being read out");
+                SetQueueStatus("Stopped talking");
+                return;
+            }
+
             AppLog.Write("Abort key pressed with no agent running");
             SetQueueStatus("Nothing to stop");
             return;
@@ -1072,14 +1307,6 @@ public partial class MainWindow : Window
         ReadUiIntoSettings();
         UpdateAgentStatus();
         QueueAutoSave();
-    }
-
-    private void AgentInstructionResizeDragged(object sender, DragDeltaEventArgs e)
-    {
-        AgentInstructionBox.Height = Math.Clamp(
-            AgentInstructionBox.ActualHeight + e.VerticalChange,
-            AgentInstructionBox.MinHeight,
-            AgentInstructionBox.MaxHeight);
     }
 
     private void BrowseAgentFolderClicked(object sender, RoutedEventArgs e)
@@ -1498,14 +1725,6 @@ public partial class MainWindow : Window
         QueueAutoSave();
     }
 
-    private void InstructionResizeDragged(object sender, DragDeltaEventArgs e)
-    {
-        InstructionBox.Height = Math.Clamp(
-            InstructionBox.ActualHeight + e.VerticalChange,
-            InstructionBox.MinHeight,
-            InstructionBox.MaxHeight);
-    }
-
     private void HotkeyCaptureMouseDown(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
@@ -1718,6 +1937,16 @@ public partial class MainWindow : Window
             _settings.AgentCleanupEnabled = AgentCleanupCheck.IsChecked == true;
         }
         _settings.AgentFinishedSoundEnabled = AgentFinishedSoundCheck.IsChecked == true;
+        _settings.VoiceReplyEnabled = VoiceEnabledCheck.IsChecked == true;
+        _settings.VoiceApiKey = VoiceApiKeyBox.Password.Trim();
+        // Same trap the model lists avoid: the list is empty for the moment
+        // before ApplySettingsToUi fills it, and reading it then would replace a
+        // saved voice with nothing.
+        if (VoiceCombo.SelectedItem is VoiceOption voice)
+        {
+            _settings.VoiceName = voice.Id;
+        }
+        _settings.VoiceVolume = VoiceVolumeSlider.Value;
         // An emptied box means "no standing facts", not "give me the starter
         // text back": someone who deliberately cleared it should stay cleared.
         _settings.AgentInstruction = AgentInstructionBox.Text.Trim();
@@ -1958,6 +2187,7 @@ public partial class MainWindow : Window
         RunLogged("stop update timers", () => { _updatePollTimer?.Stop(); _updateRepromptTimer?.Stop(); _autoSaveTimer?.Stop(); });
         RunLogged("stop hotkey hook", _hotkey.Dispose);
         RunLogged("stop tone player", _tones.Dispose);
+        RunLogged("stop the spoken reply", _voice.Dispose);
         RunLogged("stop audio recorder", _audio.Dispose);
         RunLogged("stop speech engine", () => _parakeet.DisposeAsync().AsTask().GetAwaiter().GetResult());
         RunLogged("remove tray icon", _tray.Dispose);

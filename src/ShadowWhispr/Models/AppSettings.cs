@@ -228,6 +228,43 @@ public sealed class AppSettings
     public bool AgentFinishedSoundEnabled { get; set; } = true;
 
     /// <summary>
+    /// Speaks the agent's reply out loud through Gemini's Live API. Off by
+    /// default and for every new install: it needs an API key the user has to
+    /// fetch themselves, and it sends the spoken half of each reply to Google.
+    /// </summary>
+    public bool VoiceReplyEnabled { get; set; }
+
+    /// <summary>
+    /// Google AI Studio API key, used only for spoken replies. Stored as typed
+    /// in settings.json, which is the same treatment every other setting gets;
+    /// the file already lives in the user's own %APPDATA% profile.
+    /// </summary>
+    public string VoiceApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Which prebuilt Gemini voice reads the reply. Anything unknown falls back
+    /// to the default in <see cref="GeminiVoiceService"/> rather than failing,
+    /// so an old or hand-edited settings file still speaks.
+    /// </summary>
+    public string VoiceName { get; set; } = "Leda";
+
+    /// <summary>
+    /// Playback volume, 0 to 1. Gemini returns audio close to full scale, which
+    /// is far louder than the cue tones, so the sensible default is well under
+    /// half rather than 1.
+    /// </summary>
+    public double VoiceVolume { get; set; } = 0.35;
+
+    /// <summary>
+    /// Whether a reply will actually be spoken. Like
+    /// <see cref="WillCleanAgentInstruction"/>, this keeps the UI and the run
+    /// agreeing by construction: without a key there is nothing to call, so the
+    /// feature is off however the checkbox is set.
+    /// </summary>
+    public bool WillSpeakAgentReply =>
+        VoiceReplyEnabled && !string.IsNullOrWhiteSpace(VoiceApiKey);
+
+    /// <summary>
     /// The working folder to actually use, with the empty default resolved.
     /// </summary>
     public string ResolveAgentWorkingDirectory() =>

@@ -289,6 +289,135 @@
             </Setter>
         </Style>
 
+        <!-- Matches the TextBox style, so the API key field does not look like a
+             stray Windows control dropped into the middle of the app. -->
+        <Style TargetType="PasswordBox">
+            <Setter Property="Background" Value="#10141A" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CaretBrush" Value="{StaticResource GoldBrightBrush}" />
+            <Setter Property="SelectionBrush" Value="#6BA77C32" />
+            <Setter Property="Padding" Value="13,10" />
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border x:Name="FieldBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Margin="{TemplateBinding Padding}"
+                                          VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="FieldBorder" Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+                                <Setter TargetName="FieldBorder" Property="BorderThickness" Value="1.5" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="FieldBorder" Property="BorderBrush" Value="{StaticResource LineStrongBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.52" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="Slider">
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="IsMoveToPointEnabled" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center">
+                            <Border Height="6" CornerRadius="3" Background="#10141A"
+                                    BorderBrush="{StaticResource LineBrush}" BorderThickness="1" />
+                            <!-- The filled part is drawn by the left half of the
+                                 track's own grid, so it follows the thumb without
+                                 needing a converter. -->
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Height="6" CornerRadius="3"
+                                                        Background="{StaticResource GoldBrush}" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Background="Transparent" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="18" Height="18" Cursor="Hand">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Grid>
+                                                    <Ellipse Fill="{StaticResource GoldBrightBrush}" />
+                                                    <Ellipse Fill="#171107" Margin="6" />
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.52" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- The top category buttons. RadioButtons in one group, so exactly one
+             is always active and WPF handles the mutual exclusion itself. -->
+        <Style x:Key="NavTab" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="TabBorder" Background="Transparent" CornerRadius="10"
+                                Padding="17,10" BorderThickness="1" BorderBrush="Transparent">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource PanelHoverBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="#2EA77C32" />
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#5CDDB45F" />
+                                <Setter Property="Foreground" Value="{StaticResource GoldBrightBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="ToolTip">
             <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />

@@ -379,12 +379,18 @@ public sealed partial class AiProviderService
     /// The user's own standing facts, added after ours. Theirs come last so that
     /// what they wrote wins where the two disagree.
     /// </param>
+    /// <param name="wantsSpokenReply">
+    /// Asks the session to add a <c>&lt;spoken&gt;</c> version of its reply for
+    /// reading out loud. Only requested when the user has spoken replies turned
+    /// on, so nobody else pays for the extra instruction or risks seeing the tag.
+    /// </param>
     public async Task<string> RunAgentAsync(
         string instruction,
         string workingDirectory,
         string? modelId = null,
         string? effort = null,
         string? standingInstruction = null,
+        bool wantsSpokenReply = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
@@ -415,11 +421,12 @@ public sealed partial class AiProviderService
             "--dangerously-skip-permissions",
             "--no-session-persistence",
             "--output-format", "json",
-            "--append-system-prompt", BuildAgentSystemPrompt(standingInstruction)
+            "--append-system-prompt", BuildAgentSystemPrompt(standingInstruction, wantsSpokenReply)
         };
 
         AppLog.Write(
             $"Agent run starting: model={model}, effort={chosenEffort}, " +
+            $"spoken reply {(wantsSpokenReply ? "requested" : "not requested")}, " +
             $"cwd={workingDirectory}, instruction length={instruction.Length}, " +
             $"standing facts {(string.IsNullOrWhiteSpace(standingInstruction) ? "none" : $"{standingInstruction.Trim().Length} characters")}");
 
@@ -1224,17 +1231,83 @@ public sealed partial class AiProviderService
     /// Our own agent guidance with the user's standing facts appended, clearly
     /// marked as theirs so the session can tell the two apart.
     /// </summary>
-    private static string BuildAgentSystemPrompt(string? standingInstruction) =>
-        string.IsNullOrWhiteSpace(standingInstruction)
-            ? AgentSystemPrompt
+    private static string BuildAgentSystemPrompt(string? standingInstruction, bool wantsSpokenReply)
+    {
+        var prompt = wantsSpokenReply
+            ? $"{AgentSystemPrompt}\n\n{SpokenReplyPrompt}"
+            : AgentSystemPrompt;
+
+        return string.IsNullOrWhiteSpace(standingInstruction)
+            ? prompt
             : $"""
-               {AgentSystemPrompt}
+               {prompt}
 
                The user has also given you these standing facts about themselves and their machine. Where they contradict anything above, follow them:
                <standing-facts>
                {standingInstruction.Trim()}
                </standing-facts>
                """;
+    }
+
+    /// <summary>
+    /// Asks for a second, spoken version of the reply. Written out loud by the
+    /// model rather than trimmed from the written one afterwards, because what
+    /// reads well and what sounds right are different texts: a file path and a
+    /// line number belong on the card and nowhere near a spoken sentence.
+    /// </summary>
+    private const string SpokenReplyPrompt =
+        "Your reply will also be read out loud. End it with a spoken version of itself wrapped in " +
+        "<spoken> tags, like <spoken>Done, the chime plays at the end of a run now.</spoken>. " +
+        "Keep it to one or two short sentences that sound like a person telling a friend what they just did. " +
+        "No file names, no paths, no line numbers, no version numbers, no lists, no symbols and no jargon - " +
+        "if it cannot be said out loud comfortably, leave it out. The tag must be the last thing in your reply.";
+
+    /// <summary>
+    /// The opening and closing markers of the spoken reply, kept next to the
+    /// prompt that asks for them so the two cannot drift apart.
+    /// </summary>
+    private const string SpokenOpen = "<spoken>";
+    private const string SpokenClose = "</spoken>";
+
+    /// <summary>
+    /// Splits an agent reply into what is shown and what is spoken.
+    ///
+    /// The tag is optional on purpose: models skip formatting instructions
+    /// occasionally, and a missing tag must not cost the user their reply. When
+    /// it is absent the first sentence is spoken instead, which is nearly always
+    /// the summary line anyway.
+    /// </summary>
+    public static (string Shown, string Spoken) SplitAgentReply(string reply)
+    {
+        if (string.IsNullOrWhiteSpace(reply)) return (reply, string.Empty);
+
+        var start = reply.LastIndexOf(SpokenOpen, StringComparison.OrdinalIgnoreCase);
+        if (start >= 0)
+        {
+            var from = start + SpokenOpen.Length;
+            var end = reply.IndexOf(SpokenClose, from, StringComparison.OrdinalIgnoreCase);
+            var spoken = end >= 0
+                ? reply[from..end]
+                : reply[from..]; // Truncated reply: take what is there.
+
+            var shown = reply.Remove(start, (end >= 0 ? end + SpokenClose.Length : reply.Length) - start);
+            return (shown.Trim(), spoken.Trim());
+        }
+
+        return (reply, FirstSentence(reply));
+    }
+
+    /// <summary>
+    /// The fallback spoken line: the first sentence, capped so that a reply
+    /// written as one long unpunctuated paragraph does not get read out in full.
+    /// </summary>
+    private static string FirstSentence(string text)
+    {
+        var trimmed = text.Trim();
+        var end = trimmed.IndexOfAny(['.', '!', '?']);
+        var sentence = end >= 0 ? trimmed[..(end + 1)] : trimmed;
+        return sentence.Length <= 240 ? sentence : sentence[..240];
+    }
 
     private const string AgentSystemPrompt =
         "This instruction was dictated out loud and transcribed automatically, so expect speech-to-text slips " +
