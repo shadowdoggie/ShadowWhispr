@@ -806,7 +806,7 @@ public partial class MainWindow : Window
                         runToken,
                         _settings.CodexFastMode);
                     AppLog.Write($"Agent instruction cleaned up with {_settings.Provider}");
-                    TranscriptBox.Text = $"→ {instruction}\n\nWorking… (press the agent key again to stop)";
+                    ShowAgentProgress(number, instruction, "Working…");
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
