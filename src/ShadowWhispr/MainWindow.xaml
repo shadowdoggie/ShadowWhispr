@@ -240,49 +240,6 @@
 
                         <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,22,0,22" />
 
-                        <Border Background="#14DDB45F" BorderBrush="#3ADDB45F" BorderThickness="1"
-                                CornerRadius="12" Padding="16,13" Margin="0,0,0,22">
-                            <StackPanel>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                                    <TextBlock Text="★" Foreground="{StaticResource GoldBrush}" FontSize="12"
-                                               VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <TextBlock Text="RECOMMENDED MODELS FOR THE BEST EXPERIENCE"
-                                               Style="{StaticResource Eyebrow}" VerticalAlignment="Center" />
-                                </StackPanel>
-                                <WrapPanel>
-                                    <Border Background="#12FFFFFF" BorderBrush="#33DDB45F" BorderThickness="1"
-                                            CornerRadius="8" Padding="12,7" Margin="0,0,10,0">
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Ellipse Width="6" Height="6" Fill="{StaticResource GoldBrush}"
-                                                     Margin="0,0,9,0" VerticalAlignment="Center" />
-                                            <TextBlock FontSize="12.5" VerticalAlignment="Center">
-                                                <Run Text="GPT 5.6 Sol" FontWeight="SemiBold" />
-                                                <Run Text="  ·  medium reasoning" Foreground="{StaticResource MutedBrush}" />
-                                            </TextBlock>
-                                        </StackPanel>
-                                    </Border>
-                                    <Border Background="#12FFFFFF" BorderBrush="#33DDB45F" BorderThickness="1"
-                                            CornerRadius="8" Padding="12,7" Margin="0,0,10,0">
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Ellipse Width="6" Height="6" Fill="{StaticResource GoldBrush}"
-                                                     Margin="0,0,9,0" VerticalAlignment="Center" />
-                                            <TextBlock Text="Gemini 3.6 Flash" FontSize="12.5" FontWeight="SemiBold"
-                                                       VerticalAlignment="Center" />
-                                        </StackPanel>
-                                    </Border>
-                                    <Border Background="#12FFFFFF" BorderBrush="#33DDB45F" BorderThickness="1"
-                                            CornerRadius="8" Padding="12,7" Margin="0,0,10,0">
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Ellipse Width="6" Height="6" Fill="{StaticResource GoldBrush}"
-                                                     Margin="0,0,9,0" VerticalAlignment="Center" />
-                                            <TextBlock Text="Claude Opus" FontSize="12.5" FontWeight="SemiBold"
-                                                       VerticalAlignment="Center" />
-                                        </StackPanel>
-                                    </Border>
-                                </WrapPanel>
-                            </StackPanel>
-                        </Border>
-
                         <Grid x:Name="AiOptions">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
