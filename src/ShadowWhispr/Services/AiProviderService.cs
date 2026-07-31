@@ -91,8 +91,22 @@ public sealed partial class AiProviderService
     [
         new(Claude, DefaultAgentModelId, "Claude Opus 5", AgentEffortLevels, DefaultAgentEffort),
         new(Claude, "claude-fable-5", "Claude Fable 5", AgentEffortLevels, DefaultAgentEffort),
-        new(Claude, "claude-sonnet-5", "Claude Sonnet 5", SonnetAgentEffortLevels, "medium")
+        new(Claude, "claude-sonnet-5", "Claude Sonnet 5", SonnetAgentEffortLevels, "medium"),
+        // The one non-Claude agent, run through `codex exec` rather than the
+        // Claude CLI. Its effort levels and its Fast tier are taken from what
+        // Codex itself reports for the model.
+        new(Codex, "gpt-5.6-luna", "GPT-5.6-Luna", AgentEffortLevels, DefaultAgentEffort, SupportsFastMode: true)
     ];
+
+    /// <summary>
+    /// Which CLI runs a given agent model. Agent mode was Claude-only to begin
+    /// with, so everything that branches on this exists to keep the Codex path
+    /// from inheriting Claude's flags.
+    /// </summary>
+    public static string GetAgentProvider(string? modelId) => GetAgentModel(modelId).Provider;
+
+    /// <summary>Whether the chosen agent model offers Codex's faster service tier.</summary>
+    public static bool AgentModelSupportsFastMode(string? modelId) => GetAgentModel(modelId).SupportsFastMode;
 
     /// <summary>
     /// Falls back to the default when a stored model is one this build no longer
@@ -391,6 +405,7 @@ public sealed partial class AiProviderService
         string? effort = null,
         string? standingInstruction = null,
         bool wantsSpokenReply = false,
+        bool fastMode = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
@@ -402,6 +417,20 @@ public sealed partial class AiProviderService
             AppLog.Write($"Agent run refused: working folder does not exist ({workingDirectory})");
             throw new AiProviderException(
                 $"The agent working folder does not exist: {workingDirectory}");
+        }
+
+        var systemPrompt = BuildAgentSystemPrompt(standingInstruction, wantsSpokenReply);
+
+        if (GetAgentProvider(model) == Codex)
+        {
+            return await RunCodexAgentAsync(
+                instruction,
+                workingDirectory,
+                model,
+                chosenEffort,
+                systemPrompt,
+                fastMode && AgentModelSupportsFastMode(model),
+                cancellationToken);
         }
 
         var arguments = new List<string>
@@ -421,7 +450,7 @@ public sealed partial class AiProviderService
             "--dangerously-skip-permissions",
             "--no-session-persistence",
             "--output-format", "json",
-            "--append-system-prompt", BuildAgentSystemPrompt(standingInstruction, wantsSpokenReply)
+            "--append-system-prompt", systemPrompt
         };
 
         AppLog.Write(
@@ -471,6 +500,119 @@ public sealed partial class AiProviderService
         }
 
         AppLog.Write($"Agent run finished, reply length={text.Length}");
+        return text.Trim();
+    }
+
+    /// <summary>
+    /// Runs one spoken instruction through `codex exec` instead of the Claude
+    /// CLI.
+    ///
+    /// This is a separate method rather than a few conditionals in
+    /// <see cref="RunAgentAsync"/> because almost nothing carries over: Codex
+    /// takes the effort and the service tier as config entries, streams JSONL
+    /// events rather than returning one JSON object, and has its own way of
+    /// being told not to stop and ask permission.
+    /// </summary>
+    private async Task<string> RunCodexAgentAsync(
+        string instruction,
+        string workingDirectory,
+        string model,
+        string effort,
+        string systemPrompt,
+        bool fastMode,
+        CancellationToken cancellationToken)
+    {
+        var arguments = new List<string>
+        {
+            "exec",
+            "--json",
+            "--color", "never",
+            "--skip-git-repo-check",
+            // The user's own Codex config is deliberately not read: agent mode's
+            // model, effort and tier are chosen in ShadowWhispr, and a config
+            // file that disagreed would silently win.
+            "--ignore-user-config",
+            // Unlike cleanup, which runs read-only in a scratch folder, an agent
+            // run exists to change things - so it gets the real folder and the
+            // ability to write in it. This matches what agent mode already does
+            // with Claude, and the warning on the agent page covers both.
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--cd", workingDirectory,
+            "--model", model,
+            "--config", $"model_reasoning_effort=\"{EscapeTomlString(effort)}\""
+        };
+
+        if (fastMode)
+        {
+            arguments.Add("--config");
+            arguments.Add($"service_tier=\"{PriorityServiceTier}\"");
+        }
+
+        AppLog.Write(
+            $"Codex agent run starting: model={model}, effort={effort}, " +
+            $"fast mode {(fastMode ? "on" : "off")}, cwd={workingDirectory}, " +
+            $"instruction length={instruction.Length}");
+
+        // Codex has no equivalent of Claude's --append-system-prompt, so the
+        // standing facts and the reply rules are prepended to the instruction.
+        // Marked off from what the user actually said, so the model can tell the
+        // two apart.
+        var prompt = $"""
+                      <how-to-reply>
+                      {systemPrompt}
+                      </how-to-reply>
+
+                      {instruction}
+                      """;
+
+        arguments.Add("-");
+        var result = await RunAsync(
+            GetCommand(Codex),
+            arguments,
+            prompt,
+            workingDirectory,
+            environment: null,
+            cancellationToken,
+            _agentTimeout);
+
+        EnsureSuccess(Codex, result);
+
+        // The reply is the last agent message in the event stream; earlier ones
+        // are progress commentary, and taking the first would report what it
+        // planned to do rather than what it did.
+        var text = string.Empty;
+        foreach (var line in SplitLines(result.StandardOutput))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
+            try
+            {
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                if (GetString(root, "type") != "item.completed" ||
+                    !root.TryGetProperty("item", out var item) ||
+                    GetString(item, "type") != "agent_message")
+                {
+                    continue;
+                }
+
+                var message = GetString(item, "text");
+                if (!string.IsNullOrWhiteSpace(message)) text = message;
+            }
+            catch (JsonException)
+            {
+                // Codex prints the occasional non-JSON line. Skipping it is
+                // right: the reply we want arrives as a well-formed event.
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            AppLog.Write("Codex agent run finished but returned no text");
+            throw new AiProviderException("Codex finished without saying anything.");
+        }
+
+        AppLog.Write($"Codex agent run finished, reply length={text.Length}");
         return text.Trim();
     }
 

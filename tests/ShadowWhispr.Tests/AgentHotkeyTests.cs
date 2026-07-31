@@ -259,12 +259,51 @@ public sealed class AgentHotkeyTests
     public void EveryAgentModelIsOffered()
     {
         Assert.Equal(
-            ["claude-opus-5", "claude-fable-5", "claude-sonnet-5"],
+            ["claude-opus-5", "claude-fable-5", "claude-sonnet-5", "gpt-5.6-luna"],
             AiProviderService.AgentModels.Select(model => model.Id));
 
         // The list is built from the effort levels, so a declaration-order slip
         // would leave every model with a null one rather than failing to build.
         Assert.All(AiProviderService.AgentModels, model => Assert.NotEmpty(model.ReasoningLevels));
+    }
+
+    /// <summary>
+    /// Agent mode ran only Claude to begin with, and the Codex model needs a
+    /// completely different command line. Getting the provider wrong would hand
+    /// Claude's flags to Codex, so it is pinned down here.
+    /// </summary>
+    [Theory]
+    [InlineData("claude-opus-5", "Claude")]
+    [InlineData("claude-sonnet-5", "Claude")]
+    [InlineData("gpt-5.6-luna", "Codex")]
+    [InlineData("something-else", "Claude")]
+    public void AgentModelsKnowWhichCliRunsThem(string modelId, string expected) =>
+        Assert.Equal(expected, AiProviderService.GetAgentProvider(modelId));
+
+    /// <summary>
+    /// Fast mode spends the Codex allowance quicker, so it must only be offered
+    /// where it exists - and the Claude models have no such tier.
+    /// </summary>
+    [Fact]
+    public void OnlyTheCodexAgentModelOffersFastMode()
+    {
+        Assert.True(AiProviderService.AgentModelSupportsFastMode("gpt-5.6-luna"));
+        Assert.False(AiProviderService.AgentModelSupportsFastMode("claude-opus-5"));
+        Assert.False(AiProviderService.AgentModelSupportsFastMode("claude-sonnet-5"));
+        Assert.False(new AppSettings().AgentFastMode);
+    }
+
+    /// <summary>
+    /// Luna offers every effort level, including the "low" that Sonnet drops.
+    /// </summary>
+    [Fact]
+    public void TheCodexAgentModelOffersEveryEffort()
+    {
+        Assert.Equal(
+            ["low", "medium", "high", "xhigh", "max"],
+            AiProviderService.GetAgentEffortLevels("gpt-5.6-luna"));
+        Assert.Equal("medium", AiProviderService.NormalizeAgentEffort("gpt-5.6-luna", "nonsense"));
+        Assert.Equal("max", AiProviderService.NormalizeAgentEffort("gpt-5.6-luna", "max"));
     }
 
     [Theory]

@@ -228,6 +228,14 @@ public sealed class AppSettings
     public bool AgentFinishedSoundEnabled { get; set; } = true;
 
     /// <summary>
+    /// Runs a Codex agent model on its faster "priority" service tier. Off by
+    /// default and ignored entirely by the Claude models, which have no such
+    /// tier: like the cleanup setting of the same name it burns the user's Codex
+    /// allowance quicker, so it must never switch itself on.
+    /// </summary>
+    public bool AgentFastMode { get; set; }
+
+    /// <summary>
     /// Speaks the agent's reply out loud through Gemini's Live API. Off by
     /// default and for every new install: it needs an API key the user has to
     /// fetch themselves, and it sends the spoken half of each reply to Google.

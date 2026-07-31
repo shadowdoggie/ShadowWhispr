@@ -136,6 +136,7 @@ public partial class MainWindow : Window
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         AppLog.Write($"App started (version {typeof(MainWindow).Assembly.GetName().Version})");
+        FitWindowToScreen();
         _lifetime = new CancellationTokenSource();
         _settings = _settingsService.Load();
         ApplySettingsToUi();
@@ -827,6 +828,7 @@ public partial class MainWindow : Window
                 _settings.AgentEffort,
                 _settings.AgentInstruction,
                 speaking,
+                _settings.AgentFastMode,
                 runToken);
             _agentRuns.Remove(run);
 
@@ -1000,6 +1002,7 @@ public partial class MainWindow : Window
         AgentModelCombo.SelectedItem = AiProviderService.AgentModels.First(model =>
             model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId));
         UpdateAgentEffortChoices();
+        UpdateAgentFastModeAvailability();
         AgentFinishedSoundCheck.IsChecked = _settings.AgentFinishedSoundEnabled;
         AgentInstructionBox.Text = _settings.AgentInstruction;
         VoiceEnabledCheck.IsChecked = _settings.VoiceReplyEnabled;
@@ -1034,6 +1037,47 @@ public partial class MainWindow : Window
         _uiReady = true;
         UpdateAgentStatus();
         UpdateVoiceStatus();
+    }
+
+    /// <summary>
+    /// Keeps the window inside the screen it opens on.
+    ///
+    /// A fixed size cannot work everywhere: the size that fits this design
+    /// comfortably is taller than a 1366x768 laptop, so on a small screen the
+    /// bottom of the window - the transcript, and whichever setting sat lowest -
+    /// would simply be off the desktop with no way to reach it. Instead the
+    /// preferred size is used where there is room for it, shrunk to the work
+    /// area where there is not, and the pages scroll to make up the difference.
+    ///
+    /// The work area rather than the whole screen, so the window never opens
+    /// underneath the taskbar.
+    /// </summary>
+    private void FitWindowToScreen()
+    {
+        var available = SystemParameters.WorkArea;
+
+        // A margin, so the window does not sit corner to corner against the
+        // screen edges when it has to be shrunk.
+        var maxWidth = Math.Max(MinWidth, available.Width - 40);
+        var maxHeight = Math.Max(MinHeight, available.Height - 40);
+
+        var width = Math.Min(Width, maxWidth);
+        var height = Math.Min(Height, maxHeight);
+
+        if (Math.Abs(width - Width) > 0.5 || Math.Abs(height - Height) > 0.5)
+        {
+            AppLog.Write(
+                $"Window shrunk to fit the screen: wanted {Width:0}x{Height:0}, " +
+                $"using {width:0}x{height:0} in a {available.Width:0}x{available.Height:0} work area");
+        }
+
+        Width = width;
+        Height = height;
+
+        // Re-centre by hand: WindowStartupLocation has already placed the window
+        // using the size it had before this ran.
+        Left = available.Left + ((available.Width - width) / 2);
+        Top = available.Top + ((available.Height - height) / 2);
     }
 
     // --- Category tabs -----------------------------------------------------
@@ -1265,10 +1309,19 @@ public partial class MainWindow : Window
 
         // The models do not offer the same efforts, so the list is rebuilt for
         // whichever one is now chosen before the choice is read back.
-        if (ReferenceEquals(sender, AgentModelCombo)) UpdateAgentEffortChoices();
+        // Fast mode belongs to the model too: switching from Codex to Claude has
+        // to grey it out before the choice is read back, or an unavailable tier
+        // would be saved as if it were on.
+        if (ReferenceEquals(sender, AgentModelCombo))
+        {
+            UpdateAgentEffortChoices();
+            UpdateAgentFastModeAvailability();
+        }
 
         ReadUiIntoSettings();
-        AppLog.Write($"Agent model set to {_settings.AgentModelId} at {_settings.AgentEffort} effort");
+        AppLog.Write($"Agent model set to {_settings.AgentModelId} at {_settings.AgentEffort} effort " +
+                     $"({AiProviderService.GetAgentProvider(_settings.AgentModelId)}, " +
+                     $"fast mode {(_settings.AgentFastMode ? "on" : "off")})");
         UpdateAgentStatus();
         QueueAutoSave();
     }
@@ -1332,6 +1385,36 @@ public partial class MainWindow : Window
     /// </summary>
     private HoldHotkey? ResolveAgentHotkey() =>
         _settings.AgentModeEnabled ? ParseOptionalHotkey(_settings.AgentHotkey) : null;
+
+    /// <summary>
+    /// Greys out agent fast mode unless the chosen agent model actually has a
+    /// faster tier, which today means the Codex one. Same treatment as the
+    /// cleanup box above: greyed out it shows unticked, because that is the
+    /// truth about what will happen, but the saved choice is left alone so that
+    /// switching back to Codex restores it.
+    /// </summary>
+    private void UpdateAgentFastModeAvailability()
+    {
+        var wasReady = _uiReady;
+        _uiReady = false;
+        try
+        {
+            var modelId = (AgentModelCombo.SelectedItem as AiModelOption)?.Id ?? _settings.AgentModelId;
+            var available = AiProviderService.AgentModelSupportsFastMode(modelId);
+            AgentFastModeCheck.IsEnabled = available;
+            AgentFastModeCheck.IsChecked = available && _settings.AgentFastMode;
+            AgentFastModeCheck.Content = available
+                ? "Fast mode — about 1.5x quicker"
+                : "Fast mode — only the Codex model has this";
+            AgentFastModeCheck.ToolTip = available
+                ? "Runs the agent on Codex's priority tier. It works through your Codex usage allowance quicker than normal speed."
+                : "Only GPT-5.6-Luna offers a faster tier. The Claude models run at one speed.";
+        }
+        finally
+        {
+            _uiReady = wasReady;
+        }
+    }
 
     /// <summary>
     /// Greys out the agent cleanup box whenever AI cleanup is switched off,
@@ -1937,6 +2020,12 @@ public partial class MainWindow : Window
             _settings.AgentCleanupEnabled = AgentCleanupCheck.IsChecked == true;
         }
         _settings.AgentFinishedSoundEnabled = AgentFinishedSoundCheck.IsChecked == true;
+        // Only while it is usable, for the same reason as the cleanup box above:
+        // greyed out it reads as unticked whatever the user chose.
+        if (AgentFastModeCheck.IsEnabled)
+        {
+            _settings.AgentFastMode = AgentFastModeCheck.IsChecked == true;
+        }
         _settings.VoiceReplyEnabled = VoiceEnabledCheck.IsChecked == true;
         _settings.VoiceApiKey = VoiceApiKeyBox.Password.Trim();
         // Same trap the model lists avoid: the list is empty for the moment
