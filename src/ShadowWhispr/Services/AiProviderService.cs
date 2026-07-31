@@ -110,19 +110,38 @@ public sealed partial class AiProviderService
     private static readonly string[] SonnetAgentEffortLevels = ["medium", "high", "xhigh", "max"];
 
     /// <summary>
-    /// The models agent mode may run. Kept to the three that are worth handing a
-    /// spoken task to, rather than the full Claude line-up: the rest are either
-    /// no better at tool use or not worth the wait for a one-sentence job.
+    /// The efforts the OpenCode CLI accepts as --variant for each DeepSeek V4
+    /// Flash route, taken from OpenCode's model registry: the direct DeepSeek
+    /// API offers a thinking toggle plus high/max ("off" here means no variant
+    /// is passed and thinking stays off), while OpenRouter spells the same knob
+    /// as low/high/max with no off position.
+    /// </summary>
+    private static readonly string[] DeepSeekAgentEffortLevels = ["off", "high", "max"];
+    private static readonly string[] OpenRouterAgentEffortLevels = ["low", "high", "max"];
+
+    /// <summary>
+    /// The models agent mode may run: the Claude models through the Claude CLI,
+    /// GPT through `codex exec`, and DeepSeek V4 Flash through the OpenCode CLI
+    /// (once via DeepSeek's own API, once via OpenRouter). The rest of each
+    /// line-up is left out as either no better at tool use or not worth the
+    /// wait for a one-sentence job.
     /// </summary>
     public static IReadOnlyList<AiModelOption> AgentModels { get; } =
     [
         new(Claude, DefaultAgentModelId, "Claude Opus 5", AgentEffortLevels, DefaultAgentEffort),
         new(Claude, "claude-fable-5", "Claude Fable 5", AgentEffortLevels, DefaultAgentEffort),
         new(Claude, "claude-sonnet-5", "Claude Sonnet 5", SonnetAgentEffortLevels, "medium"),
-        // The one non-Claude agent, run through `codex exec` rather than the
+        // The non-Claude CLI agent, run through `codex exec` rather than the
         // Claude CLI. Its effort levels and its Fast tier are taken from what
         // Codex itself reports for the model.
-        new(Codex, "gpt-5.6-luna", "GPT-5.6-Luna", AgentEffortLevels, DefaultAgentEffort, SupportsFastMode: true)
+        new(Codex, "gpt-5.6-luna", "GPT-5.6-Luna", AgentEffortLevels, DefaultAgentEffort, SupportsFastMode: true),
+        // The API-key agents. Neither DeepSeek nor OpenRouter ships an agent
+        // CLI, so these run through OpenCode's `opencode run`, which gives the
+        // model real tool use in the working folder. The API key pasted on the
+        // AI cleanup page is handed to OpenCode per run, so no OpenCode set-up
+        // is needed beyond installing it.
+        new(DeepSeek, "deepseek-v4-flash", "DeepSeek V4 Flash", DeepSeekAgentEffortLevels, "high"),
+        new(OpenRouter, "deepseek/deepseek-v4-flash-0731", "DeepSeek V4 Flash (OpenRouter)", OpenRouterAgentEffortLevels, "high")
     ];
 
     /// <summary>
@@ -509,6 +528,18 @@ public sealed partial class AiProviderService
 
         var systemPrompt = BuildAgentSystemPrompt(standingInstruction, wantsSpokenReply);
 
+        if (IsHttpApiProvider(GetAgentProvider(model)))
+        {
+            return await RunOpenCodeAgentAsync(
+                instruction,
+                workingDirectory,
+                GetAgentProvider(model),
+                model,
+                chosenEffort,
+                systemPrompt,
+                cancellationToken);
+        }
+
         if (GetAgentProvider(model) == Codex)
         {
             return await RunCodexAgentAsync(
@@ -702,6 +733,131 @@ public sealed partial class AiProviderService
 
         AppLog.Write($"Codex agent run finished, reply length={text.Length}");
         return text.Trim();
+    }
+
+    /// <summary>The CLI that runs the API-key agent models. Not a provider of its own:
+    /// it is only the vehicle that gives DeepSeek and OpenRouter models tool use.</summary>
+    private const string OpenCodeCommand = "opencode";
+
+    /// <summary>
+    /// Runs one spoken instruction through `opencode run`, which is how the
+    /// DeepSeek and OpenRouter agent models get real tool use: neither has an
+    /// agent CLI of its own.
+    ///
+    /// Portability is deliberate: the API key pasted on the AI cleanup page is
+    /// handed to OpenCode through its provider environment variable per run, so
+    /// a user needs nothing beyond installing OpenCode — no `opencode auth`,
+    /// no config file. An existing OpenCode login also works and is left alone.
+    /// </summary>
+    private async Task<string> RunOpenCodeAgentAsync(
+        string instruction,
+        string workingDirectory,
+        string provider,
+        string model,
+        string effort,
+        string systemPrompt,
+        CancellationToken cancellationToken)
+    {
+        if (FindOnPath(OpenCodeCommand) is null)
+        {
+            AppLog.Write($"OpenCode agent run refused: the opencode CLI is not installed (model {model})");
+            throw new AiProviderException(
+                "This model runs through the OpenCode CLI, which is not installed. " +
+                "Install it with: npm install -g opencode-ai");
+        }
+
+        // OpenCode addresses models as provider/model; the OpenRouter ids
+        // already carry their own author segment, so the result has three parts.
+        var slug = provider == DeepSeek ? $"deepseek/{model}" : $"openrouter/{model}";
+
+        var arguments = new List<string>
+        {
+            "run",
+            "--model", slug,
+            // The OpenCode counterpart of Claude's bypassPermissions: voice
+            // gives no way to answer a permission prompt, so a run that stopped
+            // to ask would simply hang until it timed out.
+            "--auto"
+        };
+
+        // "off" is the DeepSeek thinking toggle left off, which is the model's
+        // default — so no variant is passed at all rather than inventing one
+        // OpenCode does not know.
+        if (!string.Equals(effort, "off", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments.Add("--variant");
+            arguments.Add(effort);
+        }
+
+        // OpenCode has no per-run system prompt flag, so — same as the Codex
+        // path — the reply rules and standing facts are prepended to the
+        // instruction, marked off so the model can tell the two apart.
+        arguments.Add($"""
+                       <how-to-reply>
+                       {systemPrompt}
+                       </how-to-reply>
+
+                       {instruction}
+                       """);
+
+        // The key pasted in ShadowWhispr, when there is one, travels as the
+        // provider's own environment variable, which OpenCode picks up without
+        // any set-up. Missing is not fatal here: the user may have signed into
+        // OpenCode themselves, and if neither is true OpenCode's own error
+        // comes back through EnsureSuccess and says a credential is missing.
+        var environment = new Dictionary<string, string?>();
+        var apiKey = ApiKeyResolver?.Invoke(provider)?.Trim();
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            environment[provider == DeepSeek ? "DEEPSEEK_API_KEY" : "OPENROUTER_API_KEY"] = apiKey;
+        }
+        else
+        {
+            AppLog.Write($"No {provider} API key in settings; relying on the user's own OpenCode auth");
+        }
+
+        AppLog.Write(
+            $"OpenCode agent run starting: model={slug}, effort={effort}, cwd={workingDirectory}, " +
+            $"instruction length={instruction.Length}, key {(environment.Count > 0 ? "from settings" : "not supplied")}");
+
+        var result = await RunAsync(
+            OpenCodeCommand,
+            arguments,
+            standardInput: null,
+            workingDirectory,
+            environment,
+            cancellationToken,
+            _agentTimeout);
+
+        EnsureSuccess(provider, result);
+
+        var text = ReadOpenCodeReply(result.StandardOutput);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            AppLog.Write("OpenCode agent run finished but returned no text");
+            throw new AiProviderException("OpenCode finished without saying anything.");
+        }
+
+        AppLog.Write($"OpenCode agent run finished, reply length={text.Length}");
+        return text;
+    }
+
+    /// <summary>
+    /// The reply out of `opencode run`'s stdout, which wraps it in colour codes
+    /// and a "&gt; build · model" banner. Only leading banner lines are dropped:
+    /// a reply that itself starts a line with "&gt;" further down is left alone.
+    /// </summary>
+    private static string ReadOpenCodeReply(string standardOutput)
+    {
+        var lines = SplitLines(AnsiEscapeRegex().Replace(standardOutput, string.Empty)).ToList();
+        var start = 0;
+        while (start < lines.Count &&
+               (string.IsNullOrWhiteSpace(lines[start]) || lines[start].TrimStart().StartsWith('>')))
+        {
+            start++;
+        }
+
+        return string.Join('\n', lines.Skip(start)).Trim();
     }
 
     private async Task<IReadOnlyList<AiModelOption>> DiscoverCodexModelsAsync(CancellationToken cancellationToken)
@@ -1636,6 +1792,10 @@ public sealed partial class AiProviderService
 
     [GeneratedRegex(@"^(?<model>Gemini\s.+?)\s*\((?<effort>[^()]+)\)$", RegexOptions.IgnoreCase)]
     private static partial Regex ModelWithEffortRegex();
+
+    /// <summary>Terminal colour and cursor codes, which OpenCode prints even when piped.</summary>
+    [GeneratedRegex(@"\x1B\[[0-9;?]*[A-Za-z]")]
+    private static partial Regex AnsiEscapeRegex();
 
     /// <summary>
     /// Appended to Claude Code's own system prompt for agent runs. It only adds

@@ -1499,12 +1499,21 @@ public partial class MainWindow : Window
             : $" {_settings.AgentAbortHotkey} stops the one that started most recently, so pressing it again " +
               "and again works back through them.";
 
+        // The DeepSeek routes are the only agent models that need anything
+        // installed or pasted beyond their own CLI login, so what they need is
+        // spelled out right here rather than discovered from a failed run.
+        var agentProvider = AiProviderService.GetAgentProvider(_settings.AgentModelId);
+        var openCodeNote = agentProvider is AiProviderService.DeepSeek or AiProviderService.OpenRouter
+            ? $" This model runs through the OpenCode CLI (npm install -g opencode-ai) and uses the " +
+              $"{agentProvider} API key from the AI cleanup page — paste one there if you have not."
+            : string.Empty;
+
         AgentStatus.Text =
             $"Hold or tap {_settings.AgentHotkey} and say what you want done. Every press starts a brand new " +
             $"{modelName} session at " +
             $"{AiProviderService.NormalizeAgentEffort(_settings.AgentModelId, _settings.AgentEffort)} effort in " +
             $"{folder} — it remembers nothing from the last one, and several can work at once.{cleanup}{abort} " +
-            "Replies appear under \"Last transcript\" and are never pasted anywhere.";
+            $"Replies appear under \"Last transcript\" and are never pasted anywhere.{openCodeNote}";
     }
 
     // --- Microphone selection ---------------------------------------------

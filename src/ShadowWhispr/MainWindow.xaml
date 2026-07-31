@@ -438,7 +438,7 @@
                                     <TextBlock Text="AGENT MODE" Style="{StaticResource Eyebrow}" />
                                     <TextBlock Text="Tell Claude Code to do things on this PC" Style="{StaticResource PageTitle}" />
                                     <TextBlock Style="{StaticResource PageBlurb}"
-                                               Text="Speak an instruction and a fresh headless Claude Code session carries it out — open a website, sort some files, run a command." />
+                                               Text="Speak an instruction and a fresh headless agent session carries it out — open a website, sort some files, run a command. Claude models run through Claude Code, GPT through Codex, and DeepSeek V4 Flash through the OpenCode CLI." />
                                 </StackPanel>
                                 <CheckBox x:Name="AgentModeCheck" Grid.Column="1" Content="Enabled" FontWeight="SemiBold"
                                           VerticalAlignment="Center" Checked="AgentModeToggled" Unchecked="AgentModeToggled" />
@@ -451,7 +451,7 @@
                                                Foreground="#E88A8A" />
                                     <TextBlock Margin="0,7,0,0" FontSize="11.5" TextWrapping="Wrap"
                                                Foreground="{StaticResource MutedBrush}"
-                                               Text="Agent mode starts Claude Code with permission prompts bypassed, because there is no way to answer a prompt while dictating. It can read, change and delete files, and run commands, in the folder below and anywhere it is told to look." />
+                                               Text="Agent mode starts the chosen model's agent CLI with permission prompts bypassed, because there is no way to answer a prompt while dictating. It can read, change and delete files, and run commands, in the folder below and anywhere it is told to look." />
                                 </StackPanel>
                             </Border>
 
@@ -478,7 +478,7 @@
                                      let each work its own height out, and the key
                                      button ended up shorter than the folder box
                                      beside it. -->
-                                <TextBlock Text="AGENT KEY — SEND TO CLAUDE CODE" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="AGENT KEY — SEND TO THE AGENT" Style="{StaticResource FieldLabel}" />
                                 <TextBlock Grid.Column="2" Text="ABORT KEY — STOP THE NEWEST RUN"
                                            Style="{StaticResource FieldLabel}" />
                                 <TextBlock Grid.Column="4" Text="WORKING FOLDER" Style="{StaticResource FieldLabel}" />
