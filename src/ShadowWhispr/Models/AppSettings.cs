@@ -208,6 +208,18 @@ public sealed class AppSettings
     public bool AgentCleanupEnabled { get; set; }
 
     /// <summary>
+    /// Whether a spoken instruction actually gets tidied before the agent acts
+    /// on it. Agent cleanup borrows the provider, model and instruction from the
+    /// AI cleanup settings, so it cannot run while those are switched off — the
+    /// setting on its own is only half the answer.
+    ///
+    /// Kept here rather than as a check at each use so the UI and the run agree
+    /// by construction: the checkbox greys out on exactly the condition that
+    /// stops the cleanup happening.
+    /// </summary>
+    public bool WillCleanAgentInstruction => AiEnabled && AgentCleanupEnabled;
+
+    /// <summary>
     /// Plays a quiet chime when an agent run finishes. On by default: a run can
     /// take minutes, and without it the only way to know it is done is to keep
     /// checking the window. Switched off entirely by the "no sounds" setting,

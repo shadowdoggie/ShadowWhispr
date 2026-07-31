@@ -308,6 +308,42 @@ public sealed class AgentHotkeyTests
     public void TheFinishedChimeIsOnByDefault() =>
         Assert.True(new AppSettings().AgentFinishedSoundEnabled);
 
+    /// <summary>
+    /// Every combination of the two tick boxes. Agent cleanup borrows the AI
+    /// cleanup provider and model, so it can only run when both are on — which
+    /// is also exactly when its box is usable.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, false)]
+    public void AgentCleanupNeedsBothTickBoxes(bool aiEnabled, bool agentCleanup, bool expected)
+    {
+        var settings = new AppSettings { AiEnabled = aiEnabled, AgentCleanupEnabled = agentCleanup };
+
+        Assert.Equal(expected, settings.WillCleanAgentInstruction);
+    }
+
+    /// <summary>
+    /// Switching AI cleanup off makes agent cleanup idle, but must not forget
+    /// that it was asked for: switching AI cleanup back on has to bring the
+    /// choice back rather than leaving the user to notice it was cleared.
+    /// </summary>
+    [Fact]
+    public void TurningAiCleanupOffAndOnAgainKeepsTheAgentCleanupChoice()
+    {
+        var settings = new AppSettings { AiEnabled = true, AgentCleanupEnabled = true };
+        Assert.True(settings.WillCleanAgentInstruction);
+
+        settings.AiEnabled = false;
+        Assert.False(settings.WillCleanAgentInstruction);
+        Assert.True(settings.AgentCleanupEnabled);
+
+        settings.AiEnabled = true;
+        Assert.True(settings.WillCleanAgentInstruction);
+    }
+
     [Fact]
     public void SonnetIsTheOnlyModelWithoutLowEffort()
     {

@@ -792,7 +792,7 @@ public partial class MainWindow : Window
             // A failure here is not fatal — the raw transcript is still a usable
             // instruction, and refusing to act on it would be worse than acting
             // on a slightly messy one.
-            if (_settings.AgentCleanupEnabled)
+            if (_settings.WillCleanAgentInstruction)
             {
                 SetQueueStatus($"Cleaning the instruction with {_settings.Provider}…");
                 try
@@ -947,7 +947,6 @@ public partial class MainWindow : Window
         AgentModelCombo.SelectedItem = AiProviderService.AgentModels.First(model =>
             model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId));
         UpdateAgentEffortChoices();
-        AgentCleanupCheck.IsChecked = _settings.AgentCleanupEnabled;
         AgentFinishedSoundCheck.IsChecked = _settings.AgentFinishedSoundEnabled;
         AgentInstructionBox.Text = _settings.AgentInstruction;
         RefreshMicrophoneList(_settings.Microphone);
@@ -968,6 +967,10 @@ public partial class MainWindow : Window
         InstructionBox.Text = _settings.CustomInstruction;
         AiOptions.IsEnabled = _settings.AiEnabled;
         AutoUpdateCheck.IsChecked = _settings.AutoUpdateEnabled;
+        // After the AI cleanup box above, never before: this reads that box to
+        // decide whether agent cleanup is available, and running it first left
+        // the agent box greyed out on a fresh start whatever the setting said.
+        UpdateAgentCleanupAvailability();
         _uiReady = true;
         UpdateAgentStatus();
     }
@@ -1103,6 +1106,40 @@ public partial class MainWindow : Window
     private HoldHotkey? ResolveAgentHotkey() =>
         _settings.AgentModeEnabled ? ParseOptionalHotkey(_settings.AgentHotkey) : null;
 
+    /// <summary>
+    /// Greys out the agent cleanup box whenever AI cleanup is switched off,
+    /// because agent cleanup runs on that card's provider and model and cannot
+    /// happen without them.
+    ///
+    /// While greyed it also shows unticked, which is the truth about what will
+    /// happen — but the saved setting is left alone, so switching AI cleanup
+    /// back on restores the choice rather than quietly forgetting it.
+    /// </summary>
+    private void UpdateAgentCleanupAvailability()
+    {
+        var wasReady = _uiReady;
+        _uiReady = false;
+        try
+        {
+            var available = AiEnabledCheck.IsChecked == true;
+            AgentCleanupCheck.IsEnabled = available;
+            AgentCleanupCheck.IsChecked = available && _settings.AgentCleanupEnabled;
+            // The label says why it is greyed out. A box that is simply dead
+            // leaves the user hunting for the reason, and the reason is a
+            // setting in a different card.
+            AgentCleanupCheck.Content = available
+                ? "Clean up what I said before sending it"
+                : "Clean up what I said before sending it — turn on AI cleanup above to use this";
+            AgentCleanupCheck.ToolTip = available
+                ? "Runs the spoken instruction through your AI cleanup provider first, then hands the tidied version to the agent."
+                : "This uses the provider and model from the AI cleanup card above, so that has to be enabled first.";
+        }
+        finally
+        {
+            _uiReady = wasReady;
+        }
+    }
+
     /// <summary>The abort binding, for the same reason and on the same terms.</summary>
     private HoldHotkey? ResolveAgentAbortHotkey() =>
         _settings.AgentModeEnabled ? ParseOptionalHotkey(_settings.AgentAbortHotkey) : null;
@@ -1137,9 +1174,11 @@ public partial class MainWindow : Window
             .FirstOrDefault(model => model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId))
             ?.DisplayName ?? _settings.AgentModelId;
 
-        var cleanup = _settings.AgentCleanupEnabled
+        var cleanup = _settings.WillCleanAgentInstruction
             ? $" What you say is tidied by {_settings.Provider} first."
-            : string.Empty;
+            : _settings.AgentCleanupEnabled
+                ? " Tidying what you say is switched on but idle, because AI cleanup above is off."
+                : string.Empty;
 
         var abort = string.IsNullOrWhiteSpace(_settings.AgentAbortHotkey)
             ? " Assign an abort key to be able to stop one."
@@ -1441,6 +1480,12 @@ public partial class MainWindow : Window
     {
         if (AiOptions is null) return;
         AiOptions.IsEnabled = AiEnabledCheck.IsChecked == true;
+
+        // Agent cleanup rides on this card's provider, so it follows this switch.
+        // Read first, so the choice being restored is the one last made.
+        if (_uiReady) ReadUiIntoSettings();
+        UpdateAgentCleanupAvailability();
+        UpdateAgentStatus();
         SettingsChanged(sender, e);
     }
 
@@ -1663,7 +1708,15 @@ public partial class MainWindow : Window
         {
             _settings.AgentEffort = agentEffort;
         }
-        _settings.AgentCleanupEnabled = AgentCleanupCheck.IsChecked == true;
+        // Only while the box is usable. Greyed out it shows unticked whatever the
+        // user actually chose, and reading it then overwrites that choice with
+        // the placeholder - the same trap the fast mode box avoids below. Asked
+        // of the box itself rather than of the AI cleanup setting, so that being
+        // greyed out for any reason is enough to leave the choice alone.
+        if (AgentCleanupCheck.IsEnabled)
+        {
+            _settings.AgentCleanupEnabled = AgentCleanupCheck.IsChecked == true;
+        }
         _settings.AgentFinishedSoundEnabled = AgentFinishedSoundCheck.IsChecked == true;
         // An emptied box means "no standing facts", not "give me the starter
         // text back": someone who deliberately cleared it should stay cleared.
