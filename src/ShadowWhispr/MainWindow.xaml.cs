@@ -112,6 +112,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Read per call rather than copied in, so a key pasted a moment ago is
+        // the one the very next cleanup uses.
+        _ai.ApiKeyResolver = provider => _settings.GetApiKeyFor(provider);
         Loaded += OnLoaded;
         Closing += OnClosing;
         _hotkey.Pressed += OnHotkeyPressed;
@@ -1027,6 +1030,7 @@ public partial class MainWindow : Window
             : string.Empty;
         AiEnabledCheck.IsChecked = _settings.AiEnabled;
         SelectComboText(ProviderCombo, _settings.Provider);
+        UpdateProviderAuthUi();
         InstructionBox.Text = _settings.CustomInstruction;
         AiOptions.IsEnabled = _settings.AiEnabled;
         AutoUpdateCheck.IsChecked = _settings.AutoUpdateEnabled;
@@ -1568,12 +1572,58 @@ public partial class MainWindow : Window
                 $"(remembered effort for {_activeProvider}: {_settings.GetReasoningFor(_activeProvider) ?? "none yet"})");
         }
 
+        UpdateProviderAuthUi();
         _ = RefreshLoginStatusAsync(_settings.Provider);
         QueueAutoSave();
 
         // Restore the model this provider was last using, for the same reason
         // as its effort: coming back should look like you left it.
         await RefreshModelsAsync(_settings.GetModelFor(_activeProvider));
+    }
+
+    /// <summary>True when the provider authenticates with a pasted API key rather than a CLI login.</summary>
+    private static bool IsApiKeyProvider(string? provider) =>
+        string.Equals(provider, AiProviderService.DeepSeek, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(provider, AiProviderService.OpenRouter, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Swaps the login buttons for the API key field on the cleanup card,
+    /// depending on how the active provider authenticates. The key box is
+    /// refilled from settings on every switch because the one box is shared by
+    /// both API providers, and each remembers its own key.
+    /// </summary>
+    private void UpdateProviderAuthUi()
+    {
+        var usesApiKey = IsApiKeyProvider(_activeProvider);
+        LoginButtonsPanel.Visibility = usesApiKey ? Visibility.Collapsed : Visibility.Visible;
+        ApiKeyPanel.Visibility = usesApiKey ? Visibility.Visible : Visibility.Collapsed;
+        if (!usesApiKey) return;
+
+        ApiKeyLabel.Text = string.Equals(_activeProvider, AiProviderService.DeepSeek, StringComparison.OrdinalIgnoreCase)
+            ? "DEEPSEEK API KEY"
+            : "OPENROUTER API KEY";
+        // Filling the box raises PasswordChanged, which must not read the UI
+        // back into settings mid-switch and file this key under the wrong provider.
+        var wasReady = _uiReady;
+        _uiReady = false;
+        try
+        {
+            CleanupApiKeyBox.Password = _settings.GetApiKeyFor(_activeProvider) ?? string.Empty;
+        }
+        finally
+        {
+            _uiReady = wasReady;
+        }
+    }
+
+    private void CleanupApiKeyChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        // Never logged, only whether there is one — it is a credential. The
+        // login status line flips to "API key saved" as soon as one is pasted.
+        _ = RefreshLoginStatusAsync(_settings.Provider);
+        QueueAutoSave();
     }
 
     private async void LoginClicked(object sender, RoutedEventArgs e)
@@ -1652,6 +1702,8 @@ public partial class MainWindow : Window
         AuthStatus.Text = provider switch
         {
             AiProviderService.Gemini => "Login uses Google Antigravity",
+            AiProviderService.DeepSeek => "Paste your DeepSeek API key from platform.deepseek.com",
+            AiProviderService.OpenRouter => "Paste your OpenRouter API key from openrouter.ai/keys",
             _ => $"Login uses your {provider} subscription"
         };
     }
@@ -1694,7 +1746,7 @@ public partial class MainWindow : Window
         if (_providerLoggedIn)
         {
             LoginButton.IsEnabled = false;
-            AuthStatus.Text = "Already logged in";
+            AuthStatus.Text = IsApiKeyProvider(provider) ? "API key saved" : "Already logged in";
         }
         else if (ProviderCombo.IsEnabled)
         {
@@ -2054,6 +2106,16 @@ public partial class MainWindow : Window
         _tones.Muted = _settings.SoundCuesMuted;
         _settings.AiEnabled = AiEnabledCheck.IsChecked == true;
         _settings.Provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
+        // Filed under the provider the key box is still showing, which during a
+        // provider switch is the previous one — same rule as the reasoning memory.
+        if (IsApiKeyProvider(_activeProvider))
+        {
+            var cleanupKey = CleanupApiKeyBox.Password.Trim();
+            if (string.Equals(_activeProvider, AiProviderService.DeepSeek, StringComparison.OrdinalIgnoreCase))
+                _settings.DeepSeekApiKey = cleanupKey;
+            else
+                _settings.OpenRouterApiKey = cleanupKey;
+        }
         if (ModelCombo.SelectedItem is AiModelOption model)
         {
             _settings.ModelId = model.Id;

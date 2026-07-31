@@ -1,7 +1,7 @@
 <Window x:Class="ShadowWhispr.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ShadowWhispr" Width="1180" Height="880" MinWidth="880" MinHeight="600"
+        Title="ShadowWhispr" Width="1180" Height="880" MinWidth="980" MinHeight="720"
         WindowStartupLocation="CenterScreen"
         TextOptions.TextFormattingMode="Display"
         TextOptions.TextRenderingMode="ClearType"
@@ -39,7 +39,7 @@
         <!-- Every multi-line settings box. A minimum height it can never fall
              below, so a page that runs out of room scrolls instead of squashing
              the box down to a sliver. -->
-        <Style x:Key="EditorBox" TargetType="TextBox">
+        <Style x:Key="EditorBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="MinHeight" Value="120" />
             <Setter Property="AcceptsReturn" Value="True" />
             <Setter Property="TextWrapping" Value="Wrap" />
@@ -362,6 +362,8 @@
                                     <ComboBoxItem Content="Claude" />
                                     <ComboBoxItem Content="Codex" />
                                     <ComboBoxItem Content="Gemini" />
+                                    <ComboBoxItem Content="DeepSeek" />
+                                    <ComboBoxItem Content="OpenRouter" />
                                 </ComboBox>
                                 <ComboBox x:Name="ModelCombo" Grid.Row="1" Grid.Column="2"
                                           DisplayMemberPath="DisplayName" SelectionChanged="ModelChanged" />
@@ -369,12 +371,19 @@
                                           SelectionChanged="SettingsChanged" />
 
                                 <StackPanel Grid.Row="2" Margin="0,12,0,0">
-                                    <StackPanel Orientation="Horizontal">
+                                    <StackPanel x:Name="LoginButtonsPanel" Orientation="Horizontal">
                                         <Button x:Name="LoginButton" Content="Login" Padding="13,6" MinHeight="32"
                                                 FontSize="12" Click="LoginClicked" />
                                         <Button x:Name="LogoutButton" Content="Logout" Style="{StaticResource SecondaryButton}"
                                                 Padding="13,6" MinHeight="32" Margin="8,0,0,0" FontSize="12"
                                                 Click="LogoutClicked" />
+                                    </StackPanel>
+                                    <!-- Shown instead of the login buttons for the providers that take a
+                                         pasted API key (DeepSeek, OpenRouter) rather than a CLI sign-in. -->
+                                    <StackPanel x:Name="ApiKeyPanel" Visibility="Collapsed" MaxWidth="420"
+                                                HorizontalAlignment="Left">
+                                        <TextBlock x:Name="ApiKeyLabel" Text="API KEY" Style="{StaticResource FieldLabel}" />
+                                        <PasswordBox x:Name="CleanupApiKeyBox" PasswordChanged="CleanupApiKeyChanged" />
                                     </StackPanel>
                                     <TextBlock x:Name="AuthStatus" Text="Checking login…" Margin="1,8,0,0"
                                                Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />

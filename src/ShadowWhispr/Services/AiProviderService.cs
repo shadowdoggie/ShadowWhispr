@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -23,7 +25,15 @@ public sealed partial class AiProviderService
     public const string Codex = "Codex";
     public const string Gemini = "Gemini";
 
-    public static IReadOnlyList<string> Providers { get; } = [Claude, Codex, Gemini];
+    /// <summary>
+    /// The two HTTP API providers. Unlike the three above they are not CLIs:
+    /// they are OpenAI-compatible chat-completions endpoints authenticated with
+    /// an API key the user pastes into settings.
+    /// </summary>
+    public const string DeepSeek = "DeepSeek";
+    public const string OpenRouter = "OpenRouter";
+
+    public static IReadOnlyList<string> Providers { get; } = [Claude, Codex, Gemini, DeepSeek, OpenRouter];
 
     private static readonly IReadOnlyList<AiModelOption> ClaudeModels =
     [
@@ -39,6 +49,23 @@ public sealed partial class AiProviderService
         new(Gemini, "gemini-3.6-flash", "Gemini 3.6 Flash", ["low", "medium", "high"], "high"),
         new(Gemini, "gemini-3.5-flash", "Gemini 3.5 Flash", ["low", "medium", "high"], "high"),
         new(Gemini, "gemini-3.1-pro", "Gemini 3.1 Pro", ["low", "high"], "high")
+    ];
+
+    /// <summary>
+    /// The HTTP providers' model lists are fixed rather than discovered: each
+    /// API offers one model worth using for cleanup, and listing models would
+    /// need a network call (and a valid key) just to show a one-entry combo.
+    /// "off" means no thinking at all, which is what a transcript tidy usually
+    /// wants — it is the cheapest and fastest setting, not a degraded one.
+    /// </summary>
+    private static readonly IReadOnlyList<AiModelOption> DeepSeekModels =
+    [
+        new(DeepSeek, "deepseek-v4-flash", "DeepSeek V4 Flash", ["off", "low", "high", "max"], "off")
+    ];
+
+    private static readonly IReadOnlyList<AiModelOption> OpenRouterModels =
+    [
+        new(OpenRouter, "deepseek/deepseek-v4-flash-0731", "DeepSeek V4 Flash 0731", ["off", "low", "medium", "high"], "off")
     ];
 
     /// <summary>The speed tier Codex's model cache lists for fast-capable models.</summary>
@@ -149,6 +176,22 @@ public sealed partial class AiProviderService
 
     private readonly string _isolatedWorkDirectory;
 
+    /// <summary>
+    /// Hands the service an API key for a given HTTP provider (DeepSeek,
+    /// OpenRouter). Set by the app to read from settings rather than passing
+    /// keys into the constructor, so the service always sees the key the user
+    /// pasted in most recently instead of a copy taken at start-up.
+    /// </summary>
+    public Func<string, string?>? ApiKeyResolver { get; set; }
+
+    /// <summary>
+    /// One shared client for every HTTP provider call, as HttpClient is meant to
+    /// be used. Its own timeout is only a backstop against a hang nobody asked
+    /// about: each request is actually cut off by <see cref="_commandTimeout"/>
+    /// through a linked CTS, the same way <see cref="RunAsync"/> cuts off a CLI.
+    /// </summary>
+    private static readonly HttpClient HttpApi = new() { Timeout = TimeSpan.FromMinutes(10) };
+
     public AiProviderService(TimeSpan? commandTimeout = null, TimeSpan? agentTimeout = null)
     {
         _commandTimeout = commandTimeout ?? TimeSpan.FromMinutes(5);
@@ -158,7 +201,16 @@ public sealed partial class AiProviderService
 
     public bool IsCliAvailable(string provider)
     {
-        var command = GetCommand(provider);
+        var normalizedProvider = NormalizeProvider(provider);
+        if (IsHttpApiProvider(normalizedProvider))
+        {
+            // There is no CLI to look for: the API is always "installed", and
+            // whether it can be used is a question about the key, which is what
+            // GetLoginStatusAsync answers.
+            return true;
+        }
+
+        var command = GetCommand(normalizedProvider);
         return FindOnPath(command) is not null;
     }
 
@@ -167,6 +219,8 @@ public sealed partial class AiProviderService
         Claude => "claude auth login --claudeai",
         Codex => "codex login",
         Gemini => "agy (opens OAuth onboarding when signed out)",
+        DeepSeek => "API key (platform.deepseek.com)",
+        OpenRouter => "API key (openrouter.ai/keys)",
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
 
@@ -180,6 +234,16 @@ public sealed partial class AiProviderService
         CancellationToken cancellationToken = default)
     {
         var normalizedProvider = NormalizeProvider(provider);
+        if (IsHttpApiProvider(normalizedProvider))
+        {
+            // For an API-key provider "signed in" simply means a key has been
+            // pasted in. No process is spawned and the key is never validated
+            // here: a wrong key surfaces as a clear HTTP error on first use.
+            return string.IsNullOrWhiteSpace(ApiKeyResolver?.Invoke(normalizedProvider))
+                ? ProviderLoginStatus.LoggedOut
+                : ProviderLoginStatus.LoggedIn;
+        }
+
         if (normalizedProvider == Gemini)
         {
             // agy has no status command: the only way to find out is to open its
@@ -269,6 +333,15 @@ public sealed partial class AiProviderService
     {
         EnsureIsolatedDirectories();
         var normalizedProvider = NormalizeProvider(provider);
+        if (IsHttpApiProvider(normalizedProvider))
+        {
+            // Nothing to open: there is no sign-in flow, only a key. Thrown
+            // rather than silently ignored so a UI path that wrongly offers a
+            // login button still tells the user what to actually do.
+            throw new AiProviderException(
+                $"{normalizedProvider} uses an API key instead of a login — paste it on the AI cleanup page.");
+        }
+
         var arguments = normalizedProvider switch
         {
             Claude => new[] { "auth", "login", "--claudeai" },
@@ -289,6 +362,15 @@ public sealed partial class AiProviderService
     {
         EnsureIsolatedDirectories();
         var normalizedProvider = NormalizeProvider(provider);
+        if (IsHttpApiProvider(normalizedProvider))
+        {
+            // "Logging out" of an API key is deleting the key, which lives in
+            // settings — same message as LoginAsync so both dead ends point at
+            // the one place that actually controls access.
+            throw new AiProviderException(
+                $"{normalizedProvider} uses an API key instead of a login — paste it on the AI cleanup page.");
+        }
+
         if (normalizedProvider == Gemini)
         {
             // Antigravity exposes sign-out as /logout inside its interactive CLI.
@@ -324,6 +406,10 @@ public sealed partial class AiProviderService
             Claude => ClaudeModels,
             Codex => await DiscoverCodexModelsAsync(cancellationToken),
             Gemini => await DiscoverGeminiModelsAsync(cancellationToken),
+            // Fixed lists: see the comment on DeepSeekModels for why nothing is
+            // asked over the network here.
+            DeepSeek => DeepSeekModels,
+            OpenRouter => OpenRouterModels,
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }
@@ -366,6 +452,8 @@ public sealed partial class AiProviderService
             Claude => await ProcessWithClaudeAsync(modelId, reasoning, prompt, cancellationToken),
             Codex => await ProcessWithCodexAsync(modelId, reasoning, prompt, fastMode, cancellationToken),
             Gemini => await ProcessWithGeminiAsync(modelId, reasoning, prompt, cancellationToken),
+            DeepSeek or OpenRouter =>
+                await ProcessWithHttpAsync(normalizedProvider, modelId, reasoning, prompt, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
 
@@ -1004,6 +1092,189 @@ public sealed partial class AiProviderService
         return result.StandardOutput;
     }
 
+    /// <summary>
+    /// True for the providers that are HTTP APIs rather than CLIs. Everything
+    /// that would spawn a process — <see cref="GetCommand"/> included — must
+    /// check this first, so the CLI plumbing never sees them.
+    /// </summary>
+    private static bool IsHttpApiProvider(string provider) =>
+        provider is DeepSeek or OpenRouter;
+
+    /// <summary>
+    /// The key for an HTTP provider, or a message telling the user where to
+    /// paste one. Resolved per call rather than cached so a key added while the
+    /// app is running works immediately.
+    /// </summary>
+    private string ResolveApiKey(string provider)
+    {
+        var key = ApiKeyResolver?.Invoke(provider)?.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new AiProviderException($"Add your {provider} API key on the AI cleanup page.");
+        }
+
+        return key;
+    }
+
+    /// <summary>
+    /// One cleanup call against an OpenAI-compatible chat-completions API,
+    /// shared by DeepSeek and OpenRouter: the request shape and the reply shape
+    /// are the same, and only the endpoint, the headers and the spelling of the
+    /// reasoning knob differ.
+    /// </summary>
+    private async Task<string> ProcessWithHttpAsync(
+        string provider,
+        string modelId,
+        string? reasoning,
+        string prompt,
+        CancellationToken cancellationToken)
+    {
+        var apiKey = ResolveApiKey(provider);
+        var level = string.IsNullOrWhiteSpace(reasoning) ? "off" : reasoning.Trim().ToLowerInvariant();
+
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = modelId,
+            ["messages"] = new[]
+            {
+                new Dictionary<string, string> { ["role"] = "user", ["content"] = prompt }
+            },
+            ["stream"] = false
+        };
+
+        if (provider == DeepSeek)
+        {
+            // DeepSeek splits the choice in two: `thinking` switches reasoning
+            // on or off, `reasoning_effort` says how hard. "off" is thinking
+            // disabled with no effort field at all — sending an effort alongside
+            // disabled thinking would be contradictory.
+            body["thinking"] = new Dictionary<string, string>
+            {
+                ["type"] = level == "off" ? "disabled" : "enabled"
+            };
+            if (level != "off")
+            {
+                body["reasoning_effort"] = level;
+            }
+        }
+        else
+        {
+            // OpenRouter folds both halves into one `reasoning` object instead.
+            body["reasoning"] = level == "off"
+                ? new Dictionary<string, object> { ["enabled"] = false }
+                : new Dictionary<string, object> { ["effort"] = level };
+        }
+
+        var endpoint = provider == DeepSeek
+            ? "https://api.deepseek.com/chat/completions"
+            : "https://openrouter.ai/api/v1/chat/completions";
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        if (provider == OpenRouter)
+        {
+            // OpenRouter's optional attribution headers: they identify the app
+            // on openrouter.ai rankings and cost nothing to send.
+            request.Headers.Add("HTTP-Referer", "https://github.com/shadowdog-cat/ShadowWhispr");
+            request.Headers.Add("X-Title", "ShadowWhispr");
+        }
+
+        AppLog.Write($"{provider} cleanup starting: model={modelId}, reasoning={level}");
+
+        // Same timeout shape as RunAsync: the user's token plus the service's
+        // command timeout, so an API hang cannot outlive what a CLI would get.
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(_commandTimeout);
+
+        string responseBody;
+        System.Net.HttpStatusCode statusCode;
+        bool isSuccess;
+        try
+        {
+            using var response = await HttpApi.SendAsync(request, timeoutSource.Token);
+            statusCode = response.StatusCode;
+            isSuccess = response.IsSuccessStatusCode;
+            responseBody = await response.Content.ReadAsStringAsync(timeoutSource.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            AppLog.Write($"{provider} API call timed out after {_commandTimeout.TotalMinutes:0.#} minutes");
+            throw new AiProviderException(
+                $"{provider} did not answer within {_commandTimeout.TotalMinutes:0.#} minutes.");
+        }
+        catch (HttpRequestException exception)
+        {
+            AppLog.Write($"{provider} API call failed: {exception.Message}");
+            throw new AiProviderException($"{provider} could not be reached: {exception.Message}", exception);
+        }
+
+        if (!isSuccess)
+        {
+            // The full body goes to the log (it never contains the key); the
+            // user gets the short version with whatever the API said went wrong.
+            AppLog.Write($"{provider} API returned HTTP {(int)statusCode}: {responseBody}");
+            var apiMessage = TryReadApiErrorMessage(responseBody);
+            throw new AiProviderException(string.IsNullOrWhiteSpace(apiMessage)
+                ? $"{provider} returned HTTP {(int)statusCode} ({statusCode})."
+                : $"{provider} returned HTTP {(int)statusCode}: {apiMessage}");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseBody);
+            if (document.RootElement.TryGetProperty("choices", out var choices) &&
+                choices.ValueKind == JsonValueKind.Array &&
+                choices.GetArrayLength() > 0 &&
+                choices[0].TryGetProperty("message", out var message))
+            {
+                var content = GetString(message, "content");
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    AppLog.Write($"{provider} cleanup finished, reply length={content.Length}");
+                    return content;
+                }
+            }
+        }
+        catch (JsonException exception)
+        {
+            AppLog.Write($"{provider} returned unreadable JSON", exception);
+            throw new AiProviderException($"{provider} returned an unreadable response.", exception);
+        }
+
+        AppLog.Write($"{provider} response had no message content");
+        throw new AiProviderException($"{provider} did not return any text.");
+    }
+
+    /// <summary>
+    /// The API's own explanation of a failure (<c>error.message</c> in the JSON
+    /// body), or null when the body is not JSON or has no such field — in which
+    /// case the status code alone has to carry the message.
+    /// </summary>
+    private static string? TryReadApiErrorMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                   document.RootElement.TryGetProperty("error", out var error) &&
+                   error.ValueKind == JsonValueKind.Object
+                ? GetString(error, "message")
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private async Task<ProcessResult> RunAsync(
         string fileName,
         IReadOnlyCollection<string> arguments,
@@ -1195,6 +1466,9 @@ public sealed partial class AiProviderService
         Claude => "claude",
         Codex => "codex",
         Gemini => "agy",
+        // DeepSeek and OpenRouter deliberately fall through: they are HTTP APIs
+        // with no CLI, and every caller checks IsHttpApiProvider first, so
+        // reaching here with one of them is a bug worth throwing on.
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
 

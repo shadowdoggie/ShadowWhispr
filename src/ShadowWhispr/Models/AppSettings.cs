@@ -127,6 +127,34 @@ public sealed class AppSettings
     public bool CodexFastMode { get; set; }
 
     /// <summary>
+    /// DeepSeek platform API key, used only for the DeepSeek cleanup provider.
+    /// Stored as typed in settings.json, which is the same treatment every other
+    /// setting gets; the file already lives in the user's own %APPDATA% profile.
+    /// </summary>
+    public string DeepSeekApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// OpenRouter API key, used only for the OpenRouter cleanup provider. Stored
+    /// as typed in settings.json for the same reason as
+    /// <see cref="DeepSeekApiKey"/>.
+    /// </summary>
+    public string OpenRouterApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The API key for an HTTP cleanup provider, trimmed, or null for the CLI
+    /// providers, which sign in through their own tools rather than with a key.
+    /// Kept here so the service's key resolver has one place to ask, instead of
+    /// every caller re-mapping provider names to properties.
+    /// </summary>
+    public string? GetApiKeyFor(string provider) =>
+        provider?.Trim().ToLowerInvariant() switch
+        {
+            "deepseek" => DeepSeekApiKey.Trim(),
+            "openrouter" => OpenRouterApiKey.Trim(),
+            _ => null
+        };
+
+    /// <summary>
     /// Turns the agent hotkey into a live Claude Code session that can act on
     /// this PC. Off by default: it runs with permission prompts bypassed, so it
     /// is never something the app switches on by itself.
