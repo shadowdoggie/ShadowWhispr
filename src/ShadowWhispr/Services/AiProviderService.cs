@@ -51,19 +51,22 @@ public sealed partial class AiProviderService
         ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "on"];
 
     /// <summary>
-    /// The default agent model: fast and cheap enough to be worth pressing a key
-    /// for, which is what a fresh install should get before anyone has thought
-    /// about it.
+    /// The default agent model, which a fresh install gets before anyone has
+    /// thought about the choice.
     /// </summary>
-    public const string DefaultAgentModelId = "claude-sonnet-5";
+    public const string DefaultAgentModelId = "claude-opus-5";
 
     /// <summary>
-    /// The default agent effort. Deliberately unrelated to the reasoning level
-    /// chosen for dictation cleanup: that setting is about how carefully a
-    /// transcript is tidied, which says nothing about how hard a desktop task
-    /// should be thought through.
+    /// The default effort for the default model. Each model carries its own
+    /// default alongside the levels it offers, because they do not offer the
+    /// same ones — Opus on low is worth having where Sonnet on low is not.
+    ///
+    /// Deliberately unrelated to the reasoning level chosen for dictation
+    /// cleanup: that setting is about how carefully a transcript is tidied,
+    /// which says nothing about how hard a desktop task should be thought
+    /// through.
     /// </summary>
-    public const string DefaultAgentEffort = "medium";
+    public const string DefaultAgentEffort = "low";
 
     /// <summary>
     /// The effort levels agent mode offers, hardest last. Declared before
@@ -80,14 +83,15 @@ public sealed partial class AiProviderService
     private static readonly string[] SonnetAgentEffortLevels = ["medium", "high", "xhigh", "max"];
 
     /// <summary>
-    /// The models agent mode may run. Kept to the two that are worth handing a
+    /// The models agent mode may run. Kept to the three that are worth handing a
     /// spoken task to, rather than the full Claude line-up: the rest are either
     /// no better at tool use or not worth the wait for a one-sentence job.
     /// </summary>
     public static IReadOnlyList<AiModelOption> AgentModels { get; } =
     [
-        new(Claude, DefaultAgentModelId, "Claude Sonnet 5", SonnetAgentEffortLevels, DefaultAgentEffort),
-        new(Claude, "claude-opus-5", "Claude Opus 5", AgentEffortLevels, DefaultAgentEffort)
+        new(Claude, DefaultAgentModelId, "Claude Opus 5", AgentEffortLevels, DefaultAgentEffort),
+        new(Claude, "claude-fable-5", "Claude Fable 5", AgentEffortLevels, DefaultAgentEffort),
+        new(Claude, "claude-sonnet-5", "Claude Sonnet 5", SonnetAgentEffortLevels, "medium")
     ];
 
     /// <summary>
@@ -99,19 +103,27 @@ public sealed partial class AiProviderService
             ? modelId!
             : DefaultAgentModelId;
 
+    private static AiModelOption GetAgentModel(string? modelId) =>
+        AgentModels.First(model => model.Id == NormalizeAgentModelId(modelId));
+
     /// <summary>The effort levels the given model offers.</summary>
     public static IReadOnlyList<string> GetAgentEffortLevels(string? modelId) =>
-        AgentModels.First(model => model.Id == NormalizeAgentModelId(modelId)).ReasoningLevels;
+        GetAgentModel(modelId).ReasoningLevels;
 
     /// <summary>
-    /// Falls back to the default for the same reason as the model, and also when
-    /// the stored effort is one the chosen model does not offer — which is what
-    /// a settings file written before Sonnet dropped "low" contains.
+    /// Falls back to the chosen model's own default when the stored effort is
+    /// one it does not offer — which is what a settings file written before
+    /// Sonnet dropped "low" contains, and what switching from Opus on low to
+    /// Sonnet asks for. The fallback is per model rather than shared, because a
+    /// shared one would be a level one of the two does not have.
     /// </summary>
-    public static string NormalizeAgentEffort(string? modelId, string? effort) =>
-        GetAgentEffortLevels(modelId).Contains(effort, StringComparer.OrdinalIgnoreCase)
+    public static string NormalizeAgentEffort(string? modelId, string? effort)
+    {
+        var model = GetAgentModel(modelId);
+        return model.ReasoningLevels.Contains(effort, StringComparer.OrdinalIgnoreCase)
             ? effort!.ToLowerInvariant()
-            : DefaultAgentEffort;
+            : model.DefaultReasoningLevel ?? DefaultAgentEffort;
+    }
 
     private readonly TimeSpan _commandTimeout;
 
@@ -909,6 +921,11 @@ public sealed partial class AiProviderService
                 $"{fileName} is not installed or is not available on PATH.",
                 exception);
         }
+
+        // Immediately, and before it has had a chance to start children of its
+        // own: from here on Windows guarantees this process dies with
+        // ShadowWhispr, however ShadowWhispr goes.
+        ChildProcessJob.Shared.Assign(process);
 
         var outputTask = process.StandardOutput.ReadToEndAsync(timeoutSource.Token);
         var errorTask = process.StandardError.ReadToEndAsync(timeoutSource.Token);

@@ -64,6 +64,14 @@ public sealed class TonePlayer : IDisposable
     /// </summary>
     public void PlayCancelled() => Play(CreateCancelledCue());
 
+    /// <summary>
+    /// The cue for an agent run finishing on its own. Three notes walking up
+    /// where the stop cue walks down, and quieter than the rest: it arrives
+    /// unannounced, minutes after you last touched a key, so it should be enough
+    /// to notice and not enough to make you jump.
+    /// </summary>
+    public void PlayFinished() => Play(CreateFinishedCue());
+
     private void Play(byte[] samples)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -164,6 +172,8 @@ public sealed class TonePlayer : IDisposable
     private static byte[] CreateFallingCue() => CreateCue(volume: 0.16, 700, 420);
 
     private static byte[] CreateCancelledCue() => CreateCue(volume: 0.16, 520, 390, 290);
+
+    private static byte[] CreateFinishedCue() => CreateCue(volume: 0.10, 590, 740, 880);
 
     /// <summary>
     /// Builds a cue from separate steady notes, one after the other.

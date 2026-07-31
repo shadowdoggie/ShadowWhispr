@@ -506,6 +506,10 @@
                                         </Thumb.Template>
                                     </Thumb>
                                 </Grid>
+                                <CheckBox x:Name="AgentFinishedSoundCheck" Margin="1,14,0,0" FontSize="12.5"
+                                          Content="Play a quiet chime when a run finishes"
+                                          Checked="AgentSettingsChanged" Unchecked="AgentSettingsChanged"
+                                          ToolTip="A run can take minutes; without this the only way to know it is done is to keep checking this window. Turned off entirely by 'Turn off the start and stop sounds'." />
                             </StackPanel>
 
                             <TextBlock x:Name="AgentStatus" Grid.Row="5" Grid.ColumnSpan="5" Margin="1,14,0,0"

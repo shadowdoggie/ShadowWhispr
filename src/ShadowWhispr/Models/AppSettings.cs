@@ -138,13 +138,13 @@ public sealed class AppSettings
     /// carrying out a task and tidying a transcript are different jobs, and the
     /// choice for one says nothing about the other.
     /// </summary>
-    public string AgentModelId { get; set; } = "claude-sonnet-5";
+    public string AgentModelId { get; set; } = "claude-opus-5";
 
     /// <summary>
     /// The effort level agent mode runs at, kept apart from
     /// <see cref="Reasoning"/> for the same reason as the model.
     /// </summary>
-    public string AgentEffort { get; set; } = "medium";
+    public string AgentEffort { get; set; } = "low";
 
     /// <summary>
     /// Standing facts handed to every agent session on top of its own system
@@ -166,6 +166,14 @@ public sealed class AppSettings
     /// seconds, which is only worth it if the raw transcript trips the agent up.
     /// </summary>
     public bool AgentCleanupEnabled { get; set; }
+
+    /// <summary>
+    /// Plays a quiet chime when an agent run finishes. On by default: a run can
+    /// take minutes, and without it the only way to know it is done is to keep
+    /// checking the window. Switched off entirely by the "no sounds" setting,
+    /// same as every other cue.
+    /// </summary>
+    public bool AgentFinishedSoundEnabled { get; set; } = true;
 
     /// <summary>
     /// The working folder to actually use, with the empty default resolved.

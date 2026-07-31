@@ -158,19 +158,25 @@ public sealed class AgentHotkeyTests
     }
 
     [Fact]
-    public void AFreshInstallGetsSonnetAtMediumEffort()
+    public void AFreshInstallGetsOpusAtLowEffort()
     {
         var settings = new AppSettings();
 
-        Assert.Equal("claude-sonnet-5", settings.AgentModelId);
-        Assert.Equal("medium", settings.AgentEffort);
+        Assert.Equal("claude-opus-5", settings.AgentModelId);
+        Assert.Equal("low", settings.AgentEffort);
+
+        // The stored default has to be one the stored model actually offers,
+        // or a fresh install would silently start on a different effort.
+        Assert.Equal(
+            settings.AgentEffort,
+            AiProviderService.NormalizeAgentEffort(settings.AgentModelId, settings.AgentEffort));
     }
 
     [Fact]
-    public void BothAgentModelsAreOffered()
+    public void EveryAgentModelIsOffered()
     {
         Assert.Equal(
-            ["claude-sonnet-5", "claude-opus-5"],
+            ["claude-opus-5", "claude-fable-5", "claude-sonnet-5"],
             AiProviderService.AgentModels.Select(model => model.Id));
 
         // The list is built from the effort levels, so a declaration-order slip
@@ -179,11 +185,11 @@ public sealed class AgentHotkeyTests
     }
 
     [Theory]
-    [InlineData("claude-opus-5", "claude-opus-5")]
-    [InlineData("CLAUDE-OPUS-5", "CLAUDE-OPUS-5")]
-    [InlineData("claude-haiku-4-5", "claude-sonnet-5")]
-    [InlineData("", "claude-sonnet-5")]
-    [InlineData(null, "claude-sonnet-5")]
+    [InlineData("claude-sonnet-5", "claude-sonnet-5")]
+    [InlineData("CLAUDE-SONNET-5", "CLAUDE-SONNET-5")]
+    [InlineData("claude-haiku-4-5", "claude-opus-5")]
+    [InlineData("", "claude-opus-5")]
+    [InlineData(null, "claude-opus-5")]
     public void AnUnknownStoredModelFallsBackToTheDefault(string? stored, string expected) =>
         Assert.Equal(expected, AiProviderService.NormalizeAgentModelId(stored));
 
@@ -199,16 +205,37 @@ public sealed class AgentHotkeyTests
     [Theory]
     [InlineData("max", "max")]
     [InlineData("XHIGH", "xhigh")]
-    [InlineData("ultra", "medium")]
-    [InlineData(null, "medium")]
-    public void AnUnknownStoredEffortFallsBackToTheDefault(string? stored, string expected) =>
+    [InlineData("ultra", "low")]
+    [InlineData(null, "low")]
+    public void AnUnknownStoredEffortFallsBackToTheModelsOwnDefault(string? stored, string expected) =>
         Assert.Equal(expected, AiProviderService.NormalizeAgentEffort("claude-opus-5", stored));
 
+    /// <summary>
+    /// Every model's own default has to be a level it offers, or falling back
+    /// would hand the CLI an effort it rejects.
+    /// </summary>
     [Fact]
-    public void SonnetDoesNotOfferLowEffortButOpusDoes()
+    public void EveryAgentModelDefaultsToALevelItOffers()
+    {
+        Assert.All(AiProviderService.AgentModels, model =>
+            Assert.Contains(model.DefaultReasoningLevel, model.ReasoningLevels));
+    }
+
+    [Fact]
+    public void TheFinishedChimeIsOnByDefault() =>
+        Assert.True(new AppSettings().AgentFinishedSoundEnabled);
+
+    [Fact]
+    public void SonnetIsTheOnlyModelWithoutLowEffort()
     {
         Assert.DoesNotContain("low", AiProviderService.GetAgentEffortLevels("claude-sonnet-5"));
         Assert.Contains("low", AiProviderService.GetAgentEffortLevels("claude-opus-5"));
+        Assert.Contains("low", AiProviderService.GetAgentEffortLevels("claude-fable-5"));
+
+        // Fable offers the full range, so nothing has to be trimmed for it.
+        Assert.Equal(
+            ["low", "medium", "high", "xhigh", "max"],
+            AiProviderService.GetAgentEffortLevels("claude-fable-5"));
 
         // Everything above low is still on offer for both.
         Assert.Equal(

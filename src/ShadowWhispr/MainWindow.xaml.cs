@@ -820,6 +820,11 @@ public partial class MainWindow : Window
                 runToken);
             TranscriptBox.Text = $"→ {instruction}\n\n{reply}";
             SetQueueStatus("Agent finished");
+
+            // Only on a run that finished by itself. A stop and a failure each
+            // have their own signal already, and a "done" chime after either
+            // would be telling you the opposite of what happened.
+            if (_settings.AgentFinishedSoundEnabled) _tones.PlayFinished();
         }
         catch (OperationCanceledException)
         {
@@ -917,6 +922,7 @@ public partial class MainWindow : Window
             model.Id == AiProviderService.NormalizeAgentModelId(_settings.AgentModelId));
         UpdateAgentEffortChoices();
         AgentCleanupCheck.IsChecked = _settings.AgentCleanupEnabled;
+        AgentFinishedSoundCheck.IsChecked = _settings.AgentFinishedSoundEnabled;
         AgentInstructionBox.Text = _settings.AgentInstruction;
         RefreshMicrophoneList(_settings.Microphone);
         _audio.PreferredDeviceName = _settings.Microphone;
@@ -1581,6 +1587,7 @@ public partial class MainWindow : Window
             _settings.AgentEffort = agentEffort;
         }
         _settings.AgentCleanupEnabled = AgentCleanupCheck.IsChecked == true;
+        _settings.AgentFinishedSoundEnabled = AgentFinishedSoundCheck.IsChecked == true;
         // An emptied box means "no standing facts", not "give me the starter
         // text back": someone who deliberately cleared it should stay cleared.
         _settings.AgentInstruction = AgentInstructionBox.Text.Trim();
@@ -1808,7 +1815,11 @@ public partial class MainWindow : Window
             RunLogged("save settings on close", () => { ReadUiIntoSettings(); _settingsService.Save(_settings); });
         else
             AppLog.Write("Skipped saving settings on close: startup never completed");
-        RunLogged("cancel pending work", () => { _lifetime?.Cancel(); _modelRefresh?.Cancel(); });
+        RunLogged("cancel pending work", () => { _lifetime?.Cancel(); _modelRefresh?.Cancel(); _agentRun?.Cancel(); });
+        // Cancelling above asks nicely and can lose the race with our own exit,
+        // so an agent still working is ended outright here rather than being
+        // left running with nothing on screen to stop it.
+        RunLogged("stop running AI CLI processes", ChildProcessJob.Shared.Dispose);
         RunLogged("stop update timers", () => { _updatePollTimer?.Stop(); _updateRepromptTimer?.Stop(); _autoSaveTimer?.Stop(); });
         RunLogged("stop hotkey hook", _hotkey.Dispose);
         RunLogged("stop tone player", _tones.Dispose);
