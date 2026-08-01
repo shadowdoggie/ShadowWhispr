@@ -130,7 +130,7 @@ public partial class MainWindow : Window
 
         try
         {
-            _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
+            _hotkey.Hotkey = ParseOptionalHotkey(_settings.Hotkey);
             _hotkey.RawHotkey = ParseOptionalHotkey(_settings.RawHotkey);
             _hotkey.Start();
         }
@@ -715,7 +715,9 @@ public partial class MainWindow : Window
         _activeProvider = string.IsNullOrWhiteSpace(_settings.Provider)
             ? AiProviderService.Claude
             : _settings.Provider;
-        HotkeyCaptureButton.Content = _settings.Hotkey;
+        HotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.Hotkey)
+            ? OptionalHotkeyUnsetLabel
+            : _settings.Hotkey;
         RawHotkeyCaptureButton.Content = string.IsNullOrWhiteSpace(_settings.RawHotkey)
             ? OptionalHotkeyUnsetLabel
             : _settings.RawHotkey;
@@ -1034,7 +1036,7 @@ public partial class MainWindow : Window
     {
         if (!_uiReady) return;
         ReadUiIntoSettings();
-        _hotkey.Hotkey = ParseHotkey(_settings.Hotkey);
+        _hotkey.Hotkey = ParseOptionalHotkey(_settings.Hotkey);
         QueueAutoSave();
     }
 
@@ -1073,9 +1075,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Delete clears an optional hotkey; the main one always needs a key.
-        if (key is Key.Delete or Key.Back &&
-            !ReferenceEquals(_capturingHotkeyButton, HotkeyCaptureButton))
+        // Delete unbinds either hotkey; both are optional.
+        if (key is Key.Delete or Key.Back)
         {
             FinishHotkeyCapture(null, clear: true);
             return;
@@ -1117,7 +1118,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Ends hotkey capture for whichever field was being edited. A null hotkey
     /// keeps the previous binding, unless <paramref name="clear"/> is set, which
-    /// unassigns the optional second hotkey.
+    /// unassigns that field. Either hotkey may be left unbound.
     /// </summary>
     private void FinishHotkeyCapture(HoldHotkey? hotkey, bool clear = false)
     {
@@ -1126,7 +1127,6 @@ public partial class MainWindow : Window
         if (button is null) return;
 
         var isRaw = ReferenceEquals(button, RawHotkeyCaptureButton);
-        var isOptional = isRaw;
         var fieldName = isRaw ? "raw" : "main";
         string OwnStoredValue() => isRaw ? _settings.RawHotkey : _settings.Hotkey;
         var text = clear ? string.Empty : hotkey?.ToString() ?? _hotkeyBeforeCapture;
@@ -1157,7 +1157,7 @@ public partial class MainWindow : Window
             ResetHotkeyHint();
         }
 
-        button.Content = isOptional && text.Length == 0 ? OptionalHotkeyUnsetLabel : text;
+        button.Content = text.Length == 0 ? OptionalHotkeyUnsetLabel : text;
         button.BorderBrush = LineGray;
 
         if (isRaw)
@@ -1168,7 +1168,7 @@ public partial class MainWindow : Window
         else
         {
             _settings.Hotkey = text;
-            _hotkey.Hotkey = ParseHotkey(text);
+            _hotkey.Hotkey = ParseOptionalHotkey(text);
         }
         AppLog.Write($"{char.ToUpper(fieldName[0])}{fieldName[1..]} hotkey set to '{(text.Length == 0 ? "(none)" : text)}'");
 
@@ -1179,7 +1179,7 @@ public partial class MainWindow : Window
 
     private void ResetHotkeyHint() => HotkeyHint.Text =
         "Hold a key while you speak, or tap it quickly to keep recording hands-free until you press it again. " +
-        "Click a field, then press the key you want. Delete clears the optional hotkey; Escape cancels.";
+        "Click a field, then press the key you want. Delete unbinds it; Escape cancels.";
 
     private static Key GetActualKey(KeyEventArgs e) => e.Key switch
     {
@@ -1200,7 +1200,8 @@ public partial class MainWindow : Window
         // While a field is mid-capture its label is a prompt, not a hotkey.
         if (_capturingHotkeyButton is null)
         {
-            _settings.Hotkey = HotkeyCaptureButton.Content?.ToString() ?? "Right Ctrl";
+            var main = HotkeyCaptureButton.Content?.ToString() ?? string.Empty;
+            _settings.Hotkey = main == OptionalHotkeyUnsetLabel ? string.Empty : main;
             var raw = RawHotkeyCaptureButton.Content?.ToString() ?? string.Empty;
             _settings.RawHotkey = raw == OptionalHotkeyUnsetLabel ? string.Empty : raw;
         }
@@ -1332,9 +1333,6 @@ public partial class MainWindow : Window
         combo.SelectedIndex = 0;
     }
 
-    private static HoldHotkey ParseHotkey(string value) =>
-        HoldHotkey.TryParse(value, out var hotkey) ? hotkey : HoldHotkey.Default;
-
     /// <summary>Parses an optional hotkey; blank or invalid means "not set".</summary>
     private static HoldHotkey? ParseOptionalHotkey(string? value)
     {
@@ -1377,9 +1375,10 @@ public partial class MainWindow : Window
         else if (_dictationPaused) status = "Paused";
         else
         {
-            var parts = new List<string> { $"Hold or tap {_settings.Hotkey}" };
+            var parts = new List<string>(2);
+            if (!string.IsNullOrWhiteSpace(_settings.Hotkey)) parts.Add($"Hold or tap {_settings.Hotkey}");
             if (!string.IsNullOrWhiteSpace(_settings.RawHotkey)) parts.Add($"raw {_settings.RawHotkey}");
-            status = string.Join(" · ", parts);
+            status = parts.Count == 0 ? "No hotkey set" : string.Join(" · ", parts);
         }
 
         _tray.SetStatus(status);

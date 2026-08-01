@@ -253,7 +253,7 @@ public sealed class GlobalHotkeyService : IDisposable
     private long _heldSince;
     private int _suppressedActivationKey;
     private bool _disposed;
-    private HoldHotkey _hotkey;
+    private HoldHotkey? _hotkey;
     private HoldHotkey? _rawHotkey;
     private bool _enabled = true;
 
@@ -281,8 +281,9 @@ public sealed class GlobalHotkeyService : IDisposable
 
     /// <summary>
     /// The main push-to-talk key. It may be changed while the hook is running.
+    /// Null unbinds it, which leaves dictation to <see cref="RawHotkey"/> alone.
     /// </summary>
-    public HoldHotkey Hotkey
+    public HoldHotkey? Hotkey
     {
         get
         {
@@ -650,7 +651,7 @@ public sealed class GlobalHotkeyService : IDisposable
     }
 
     private int ActivationKeyFor(HotkeyKind kind) =>
-        kind == HotkeyKind.Raw ? _rawHotkey?.VirtualKey ?? 0 : _hotkey.VirtualKey;
+        kind == HotkeyKind.Raw ? _rawHotkey?.VirtualKey ?? 0 : _hotkey?.VirtualKey ?? 0;
 
     /// <summary>
     /// Decides which binding the currently pressed keys satisfy. The binding
@@ -661,12 +662,13 @@ public sealed class GlobalHotkeyService : IDisposable
     private HotkeyKind? MatchHeldHotkey()
     {
         var raw = _rawHotkey;
-        bool primaryDown = IsConfiguredHotkeyDown(_hotkey);
-        bool rawDown = raw is not null && raw.Value != _hotkey && IsConfiguredHotkeyDown(raw.Value);
+        var primary = _hotkey;
+        bool primaryDown = primary is not null && IsConfiguredHotkeyDown(primary.Value);
+        bool rawDown = raw is not null && raw.Value != primary && IsConfiguredHotkeyDown(raw.Value);
 
         if (primaryDown && rawDown)
         {
-            return ModifierCount(raw!.Value.Modifiers) > ModifierCount(_hotkey.Modifiers)
+            return ModifierCount(raw!.Value.Modifiers) > ModifierCount(primary!.Value.Modifiers)
                 ? HotkeyKind.Raw
                 : HotkeyKind.Primary;
         }

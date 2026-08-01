@@ -2,6 +2,10 @@ namespace ShadowWhispr.Models;
 
 public sealed class AppSettings
 {
+    /// <summary>
+    /// The main hotkey: transcribe, then apply AI cleanup if it is enabled.
+    /// Empty means "unbound", which leaves dictation to <see cref="RawHotkey"/>.
+    /// </summary>
     public string Hotkey { get; set; } = "Right Ctrl";
 
     /// <summary>
