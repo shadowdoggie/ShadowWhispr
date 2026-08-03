@@ -784,20 +784,40 @@ public sealed partial class AiProviderService
 
         // Linux has no notion of a CLI opening its own console window, so the
         // interactive sign-in runs inside whichever terminal emulator exists.
+        // Each terminal has its own way of being handed a command to run.
         if (!OperatingSystem.IsWindows())
         {
-            var terminal = new[] { "kgx", "gnome-terminal", "konsole", "xterm" }
-                .FirstOrDefault(name => FindOnPath(name) is not null);
-            if (terminal is null)
+            (string Name, string[] Prefix)[] terminals =
+            [
+                // --standalone / --wait keep the process attached to the window;
+                // without them these client/server terminals return immediately
+                // and the app would think the sign-in finished the moment it opened.
+                ("ptyxis", ["--standalone", "--"]),  // GNOME's default since 46
+                ("kgx", ["--"]),                     // GNOME Console
+                ("gnome-terminal", ["--wait", "--"]),
+                ("konsole", ["-e"]),
+                ("foot", []),
+                ("alacritty", ["-e"]),
+                ("kitty", []),
+                ("wezterm", ["start", "--"]),
+                ("xterm", ["-e"]),
+            ];
+
+            var terminal = terminals.FirstOrDefault(t => FindOnPath(t.Name) is not null);
+            if (terminal.Name is null)
             {
                 throw new AiProviderException(
                     $"No terminal emulator found to open {command}'s sign-in. " +
                     $"Run '{command} {string.Join(' ', arguments)}' in a terminal yourself, then try again.");
             }
 
-            startInfo.FileName = FindOnPath(terminal)!;
+            AppLog.Write($"Opening {command} sign-in in {terminal.Name}");
+            startInfo.FileName = FindOnPath(terminal.Name)!;
             startInfo.ArgumentList.Clear();
-            startInfo.ArgumentList.Add(terminal is "konsole" or "xterm" ? "-e" : "--");
+            foreach (var prefix in terminal.Prefix)
+            {
+                startInfo.ArgumentList.Add(prefix);
+            }
             startInfo.ArgumentList.Add(executable);
             foreach (var argument in arguments)
             {
