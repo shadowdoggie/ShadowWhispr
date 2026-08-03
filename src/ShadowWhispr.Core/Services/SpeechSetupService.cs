@@ -51,7 +51,11 @@ public sealed class SpeechSetupService
 
         var scriptDirectory = Path.GetDirectoryName(setupScriptPath) ?? AppContext.BaseDirectory;
         var projectRoot = Path.GetFullPath(Path.Combine(scriptDirectory, ".."));
-        var modelDirectory = Path.Combine(projectRoot, "speech-model");
+        // Linux setup builds everything in the user's data directory (the app
+        // folder may be read-only); the polling below must watch that folder.
+        var modelDirectory = OperatingSystem.IsWindows()
+            ? Path.Combine(projectRoot, "speech-model")
+            : Path.Combine(ParakeetService.LinuxDataDirectory, "speech-model");
 
         var startInfo = new ProcessStartInfo
         {
