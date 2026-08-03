@@ -784,46 +784,12 @@ public sealed partial class AiProviderService
 
         // Linux has no notion of a CLI opening its own console window, so the
         // interactive sign-in runs inside whichever terminal emulator exists.
-        // Each terminal has its own way of being handed a command to run.
         if (!OperatingSystem.IsWindows())
         {
-            (string Name, string[] Prefix)[] terminals =
-            [
-                // --standalone / --wait keep the process attached to the window;
-                // without them these client/server terminals return immediately
-                // and the app would think the sign-in finished the moment it opened.
-                ("ptyxis", ["--standalone", "--"]),  // GNOME's default since 46
-                ("kgx", ["--"]),                     // GNOME Console
-                ("gnome-terminal", ["--wait", "--"]),
-                ("konsole", ["-e"]),
-                ("foot", []),
-                ("alacritty", ["-e"]),
-                ("kitty", []),
-                ("wezterm", ["start", "--"]),
-                ("xterm", ["-e"]),
-            ];
-
-            var terminal = terminals.FirstOrDefault(t => FindOnPath(t.Name) is not null);
-            if (terminal.Name is null)
-            {
-                throw new AiProviderException(
+            startInfo = TerminalLauncher.TryCreate(executable, arguments, _isolatedWorkDirectory)
+                ?? throw new AiProviderException(
                     $"No terminal emulator found to open {command}'s sign-in. " +
                     $"Run '{command} {string.Join(' ', arguments)}' in a terminal yourself, then try again.");
-            }
-
-            AppLog.Write($"Opening {command} sign-in in {terminal.Name}");
-            startInfo.FileName = FindOnPath(terminal.Name)!;
-            startInfo.ArgumentList.Clear();
-            foreach (var prefix in terminal.Prefix)
-            {
-                startInfo.ArgumentList.Add(prefix);
-            }
-            startInfo.ArgumentList.Add(executable);
-            foreach (var argument in arguments)
-            {
-                startInfo.ArgumentList.Add(argument);
-            }
-            startInfo.UseShellExecute = false;
         }
 
         using var process = new Process { StartInfo = startInfo };

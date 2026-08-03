@@ -28,5 +28,6 @@
   <ItemGroup>
     <None Include="..\..\stt\**\*" Link="stt\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\scripts\setup-stt.sh" Link="scripts\setup-stt.sh" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\scripts\update-arch.sh" Link="scripts\update-arch.sh" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

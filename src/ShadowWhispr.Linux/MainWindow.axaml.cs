@@ -277,12 +277,21 @@ public partial class MainWindow : Window
         {
             AppLog.Write($"Showing update prompt for {update.Tag}");
             _tray.ShowMessage("ShadowWhispr update", $"Version {update.Tag} is available.");
-            var view = await ConfirmAsync(
+            var install = await ConfirmAsync(
                 $"ShadowWhispr {update.Tag} is available",
-                "Update through your package manager, or grab the new build from the releases page.",
-                "Open releases page", "Later");
-            if (view)
+                "Update now opens a terminal where the new package is built and installed " +
+                "(pacman asks for your password) and ShadowWhispr restarts itself.",
+                "Update now", "Later");
+            if (install)
             {
+                if (LaunchSelfUpdater())
+                {
+                    SetUpdateStatus($"Updating to {update.Tag} in the terminal window…");
+                    return;
+                }
+
+                // No terminal or no updater script (tarball install): the
+                // releases page is the manual fallback.
                 OpenInBrowser(ReleasesUrl);
             }
             else
@@ -295,6 +304,40 @@ public partial class MainWindow : Window
         finally
         {
             _updatePromptOpen = false;
+        }
+    }
+
+    /// <summary>
+    /// Opens the packaged Arch updater in a terminal, so the user performs the
+    /// update themselves. Returns false when the script or a terminal is
+    /// missing, in which case the caller falls back to the releases page.
+    /// </summary>
+    private static bool LaunchSelfUpdater()
+    {
+        var script = Path.Combine(AppContext.BaseDirectory, "scripts", "update-arch.sh");
+        if (!File.Exists(script))
+        {
+            AppLog.Write($"Self-updater not found at {script}; falling back to the releases page");
+            return false;
+        }
+
+        var startInfo = TerminalLauncher.TryCreate("bash", [script]);
+        if (startInfo is null)
+        {
+            AppLog.Write("No terminal emulator found for the self-updater; falling back to the releases page");
+            return false;
+        }
+
+        try
+        {
+            Process.Start(startInfo);
+            AppLog.Write("Self-updater launched in a terminal");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write("Launching the self-updater failed", exception);
+            return false;
         }
     }
 
