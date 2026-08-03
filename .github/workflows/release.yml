@@ -103,3 +103,76 @@ jobs:
         with:
           name: ShadowWhispr-Setup
           path: build/installer/*
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Work out the version
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            v="${{ github.event.release.tag_name }}"
+          else
+            v="${{ github.event.inputs.version }}"
+          fi
+          v="${v#v}"
+          [ -n "$v" ] || v="0.0.0-dev"
+          if ! echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Version must look like 1.2.3 or 1.2.3-beta." >&2; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Building version $v"
+
+      - name: Publish the Linux app
+        shell: bash
+        run: |
+          dotnet publish src/ShadowWhispr.Linux/ShadowWhispr.Linux.csproj \
+            -c Release -r linux-x64 --self-contained true \
+            -p:Version="${{ steps.version.outputs.version }}" \
+            -o build/linux/ShadowWhispr
+
+      - name: Assemble the tarball
+        id: tarball
+        shell: bash
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          staging=build/linux/ShadowWhispr
+          mkdir -p "$staging/packaging"
+          cp packaging/linux/shadowwhispr.desktop \
+             packaging/linux/60-shadowwhispr-uinput.rules \
+             packaging/linux/shadowwhispr-uinput.conf \
+             "$staging/packaging/"
+          cp src/ShadowWhispr.Linux/Assets/icon.png "$staging/packaging/shadowwhispr.png"
+          cp LICENSE README.md "$staging/"
+          tarball="build/linux/ShadowWhispr-linux-x64-$v.tar.gz"
+          tar -C build/linux -czf "$tarball" ShadowWhispr
+          sha256sum "$tarball" | awk '{print $1 "  " "'"$(basename "$tarball")"'"}' > "$tarball.sha256"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "checksum=$tarball.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the tarball to the release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "${{ steps.tarball.outputs.tarball }}" \
+            "${{ steps.tarball.outputs.checksum }}" \
+            --clobber
+
+      - name: Save the tarball as a build artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ShadowWhispr-Linux
+          path: build/linux/ShadowWhispr-linux-x64-*

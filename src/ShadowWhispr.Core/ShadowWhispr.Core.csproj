@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- The Windows app predates this project; keeping its namespaces means the
+         extraction changed no using directives anywhere. -->
+    <RootNamespace>ShadowWhispr</RootNamespace>
+    <AssemblyName>ShadowWhispr.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ShadowWhispr.Tests" />
+  </ItemGroup>
+</Project>

@@ -4,7 +4,7 @@
 
 <h1>ShadowWhispr</h1>
 
-**Hold a key. Speak. Release. It types for you — anywhere on Windows.**
+**Hold a key. Speak. Release. It types for you — anywhere on Windows and Linux.**
 
 Local, offline voice typing powered by NVIDIA Parakeet v3. Your voice never leaves your PC.
 
@@ -12,6 +12,7 @@ Local, offline voice typing powered by NVIDIA Parakeet v3. Your voice never leav
 
 [![Website](https://img.shields.io/badge/website-shadowwhispr.shadowdog.cat-8b7ff0?style=flat-square)](https://shadowwhispr.shadowdog.cat)
 [![Platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=flat-square&logo=windows&logoColor=white)](#-requirements)
+[![Platform](https://img.shields.io/badge/Linux-Arch-1793D1?style=flat-square&logo=archlinux&logoColor=white)](#-arch-linux)
 [![.NET](https://img.shields.io/badge/.NET-10-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#-requirements)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](#-requirements)
 [![Runs offline](https://img.shields.io/badge/speech-100%25%20local-5eead4?style=flat-square)](#-privacy)
@@ -94,6 +95,30 @@ Closing the ShadowWhispr window doesn't stop it — it keeps running in the syst
 
 **Start with Windows** is a separate checkbox and is **off by default**. Turning it on adds a normal per-user startup entry (no admin, no scheduled task) that launches ShadowWhispr straight into the tray; unticking it removes the entry again.
 
+### 🐧 Arch Linux
+
+ShadowWhispr also runs natively on Linux (built and tested on Arch, GNOME Wayland). Grab
+`ShadowWhispr-linux-x64-<version>.tar.gz` from the [latest release](https://github.com/shadowdoggie/ShadowWhispr/releases/latest)
+and either build the package from `packaging/arch/PKGBUILD` (`makepkg -si`) or unpack the
+tarball anywhere and run `./shadowwhispr`.
+
+Two one-time system steps, because ShadowWhispr reads your hotkey from the kernel's input
+devices and pastes through a virtual keyboard:
+
+```bash
+sudo usermod -aG input $USER        # then log out and back in
+# the PKGBUILD installs the uinput udev rule; for a manual tarball install:
+sudo cp packaging/60-shadowwhispr-uinput.rules /etc/udev/rules.d/
+sudo cp packaging/shadowwhispr-uinput.conf /etc/modules-load.d/
+sudo modprobe uinput && sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput
+```
+
+The speech engine (~2–3 GB, NVIDIA GPU required) downloads on first run into
+`~/.local/share/ShadowWhispr`, same in-app progress screen as on Windows. On GNOME, install
+the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/)
+to see the tray icon. Unlike Windows, the hotkey keypress is not swallowed while dictating,
+so a plain modifier like the default **Right Ctrl** works best.
+
 ### Windows may show “Unknown publisher”
 
 > [!IMPORTANT]
@@ -151,9 +176,10 @@ Privacy here isn't a setting you switch on — it's how the app works by default
 
 ## 💻 Requirements
 
-- **Windows 10 or 11**
+- **Windows 10 or 11**, or **Linux** (built for Arch; X11 or Wayland, including GNOME)
 - **NVIDIA GPU (required)** — see note below
-- **.NET 10 Desktop Runtime**
+- **.NET 10 Desktop Runtime** (Windows — the Linux tarball is self-contained)
+- Linux: `libpulse` (parec/paplay), `wl-clipboard` on Wayland or `xclip` on X11, membership of the `input` group
 - The official provider CLI + an active login for any AI cleanup provider you choose to enable
 
 > [!NOTE]
@@ -168,10 +194,13 @@ Privacy here isn't a setting you switch on — it's how the app works by default
 
 ```
 ShadowWhispr/
-├─ src/ShadowWhispr/   # WPF desktop app (.NET 10)
-├─ stt/                # Local speech-to-text worker (Python + Parakeet v3)
-├─ scripts/            # run / build / setup PowerShell scripts
-└─ installer/          # Inno Setup installer definition
+├─ src/ShadowWhispr/        # Windows WPF app (.NET 10)
+├─ src/ShadowWhispr.Core/   # Shared logic (settings, AI cleanup, speech engine host)
+├─ src/ShadowWhispr.Linux/  # Linux Avalonia app (evdev hotkeys, uinput paste, PipeWire audio)
+├─ stt/                     # Local speech-to-text worker (Python + Parakeet v3)
+├─ scripts/                 # run / build / setup scripts (PowerShell + bash)
+├─ packaging/               # Linux desktop entry, udev rule, Arch PKGBUILD
+└─ installer/               # Inno Setup installer definition (Windows)
 ```
 
 The bundled Python runtime is not in source control. `scripts/get-bundled-python.ps1` fetches a pinned, checksum-verified [python-build-standalone](https://github.com/astral-sh/python-build-standalone) build into `python/` — automatically during a build, and on first setup in a source checkout.

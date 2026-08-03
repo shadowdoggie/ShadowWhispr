@@ -46,7 +46,7 @@ public sealed class ParakeetService : IAsyncDisposable
 
         var appDirectory = AppContext.BaseDirectory;
         var projectRoot = FindProjectRoot(appDirectory);
-        var python = Path.Combine(projectRoot, ".venv", "Scripts", "python.exe");
+        var python = VenvPython(projectRoot);
         var setupComplete = Path.Combine(projectRoot, ".venv", "setup-complete");
         var worker = Path.Combine(projectRoot, "stt", "worker.py");
 
@@ -236,6 +236,30 @@ public sealed class ParakeetService : IAsyncDisposable
         catch { }
     }
 
+    /// <summary>The interpreter inside a local environment, per platform layout.</summary>
+    private static string VenvPython(string root) => OperatingSystem.IsWindows()
+        ? Path.Combine(root, ".venv", "Scripts", "python.exe")
+        : Path.Combine(root, ".venv", "bin", "python");
+
+    /// <summary>
+    /// Where a Linux install keeps the speech engine. The app itself may live
+    /// somewhere read-only (/usr, /opt), so setup-stt.sh builds the venv, the
+    /// model and a copy of stt/ under the user's XDG data directory instead.
+    /// </summary>
+    public static string LinuxDataDirectory
+    {
+        get
+        {
+            var dataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+            if (string.IsNullOrWhiteSpace(dataHome))
+                dataHome = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
+            return Path.Combine(dataHome, "ShadowWhispr");
+        }
+    }
+
+    private static string SetupScriptName => OperatingSystem.IsWindows() ? "setup-stt.ps1" : "setup-stt.sh";
+
     /// <summary>
     /// Locate the one-time speech setup script. Installed builds keep it under
     /// {app}\scripts; a source checkout keeps it under {repo}\scripts.
@@ -244,10 +268,10 @@ public sealed class ParakeetService : IAsyncDisposable
     {
         foreach (var baseDir in new[] { projectRoot, appDirectory })
         {
-            var candidate = Path.Combine(baseDir, "scripts", "setup-stt.ps1");
+            var candidate = Path.Combine(baseDir, "scripts", SetupScriptName);
             if (File.Exists(candidate)) return candidate;
         }
-        return Path.Combine(appDirectory, "scripts", "setup-stt.ps1");
+        return Path.Combine(appDirectory, "scripts", SetupScriptName);
     }
 
     private static string FindProjectRoot(string start)
@@ -255,12 +279,16 @@ public sealed class ParakeetService : IAsyncDisposable
         var directory = new DirectoryInfo(start);
         while (directory is not null)
         {
-            if (Directory.Exists(Path.Combine(directory.FullName, "stt")) &&
-                File.Exists(Path.Combine(directory.FullName, ".venv", "Scripts", "python.exe")))
-                return directory.FullName;
+            if (Qualifies(directory.FullName)) return directory.FullName;
             directory = directory.Parent;
         }
+
+        if (!OperatingSystem.IsWindows() && Qualifies(LinuxDataDirectory)) return LinuxDataDirectory;
         return start;
+
+        static bool Qualifies(string candidate) =>
+            Directory.Exists(Path.Combine(candidate, "stt")) &&
+            File.Exists(VenvPython(candidate));
     }
 
     public async ValueTask DisposeAsync()

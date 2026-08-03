@@ -13,7 +13,7 @@ public static class AppLog
     private const long MaxBytes = 2 * 1024 * 1024;
     private static readonly object Gate = new();
 
-    public static string LogPath { get; } = Path.Combine(AppContext.BaseDirectory, "app-log.txt");
+    public static string LogPath { get; } = Path.Combine(ResolveLogDirectory(), "app-log.txt");
 
     static AppLog()
     {
@@ -22,12 +22,38 @@ public static class AppLog
             var info = new FileInfo(LogPath);
             if (info.Exists && info.Length > MaxBytes)
             {
-                var old = Path.Combine(AppContext.BaseDirectory, "app-log.old.txt");
+                var old = Path.Combine(Path.GetDirectoryName(LogPath)!, "app-log.old.txt");
                 File.Copy(LogPath, old, overwrite: true);
                 File.Delete(LogPath);
             }
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Next to the executable when that folder is writable (the Windows install
+    /// always is). A Linux install under /usr is not, so the log falls back to
+    /// the user's state directory (~/.local/state/ShadowWhispr).
+    /// </summary>
+    private static string ResolveLogDirectory()
+    {
+        try
+        {
+            var probe = Path.Combine(AppContext.BaseDirectory, $".write-probe-{Environment.ProcessId}");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return AppContext.BaseDirectory;
+        }
+        catch
+        {
+            var stateHome = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
+            if (string.IsNullOrWhiteSpace(stateHome))
+                stateHome = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "state");
+            var directory = Path.Combine(stateHome, "ShadowWhispr");
+            Directory.CreateDirectory(directory);
+            return directory;
+        }
     }
 
     public static void Write(string message)

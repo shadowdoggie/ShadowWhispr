@@ -1,0 +1,121 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ShadowWhispr.Linux.App"
+             RequestedThemeVariant="Dark">
+    <Application.Resources>
+        <Color x:Key="Ink">#0C0F13</Color>
+        <Color x:Key="Panel">#15191F</Color>
+        <Color x:Key="PanelRaised">#1C222A</Color>
+        <Color x:Key="PanelHover">#252C36</Color>
+        <Color x:Key="Line">#2D3540</Color>
+        <Color x:Key="LineStrong">#414C5A</Color>
+        <Color x:Key="Text">#F6F2E9</Color>
+        <Color x:Key="Muted">#9CA5B0</Color>
+        <Color x:Key="Gold">#DDB45F</Color>
+        <Color x:Key="GoldBright">#F1CC7A</Color>
+        <Color x:Key="GoldDark">#A77C32</Color>
+        <Color x:Key="Success">#66D39A</Color>
+        <Color x:Key="Danger">#E8727B</Color>
+
+        <SolidColorBrush x:Key="InkBrush" Color="{StaticResource Ink}" />
+        <SolidColorBrush x:Key="PanelBrush" Color="{StaticResource Panel}" />
+        <SolidColorBrush x:Key="PanelRaisedBrush" Color="{StaticResource PanelRaised}" />
+        <SolidColorBrush x:Key="PanelHoverBrush" Color="{StaticResource PanelHover}" />
+        <SolidColorBrush x:Key="LineBrush" Color="{StaticResource Line}" />
+        <SolidColorBrush x:Key="LineStrongBrush" Color="{StaticResource LineStrong}" />
+        <SolidColorBrush x:Key="TextBrush" Color="{StaticResource Text}" />
+        <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource Muted}" />
+        <SolidColorBrush x:Key="GoldBrush" Color="{StaticResource Gold}" />
+        <SolidColorBrush x:Key="GoldBrightBrush" Color="{StaticResource GoldBright}" />
+        <SolidColorBrush x:Key="GoldDarkBrush" Color="{StaticResource GoldDark}" />
+        <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource Success}" />
+        <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource Danger}" />
+        <SolidColorBrush x:Key="FieldBrush" Color="#10141A" />
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+
+        <Style Selector="TextBlock.eyebrow">
+            <Setter Property="Foreground" Value="{StaticResource GoldBrush}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.fieldLabel">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,7" />
+        </Style>
+        <Style Selector="TextBlock.muted">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        </Style>
+
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="16" />
+            <Setter Property="Padding" Value="24" />
+            <Setter Property="BoxShadow" Value="0 8 28 0 #40000000" />
+        </Style>
+
+        <Style Selector="Button">
+            <Setter Property="Background" Value="{StaticResource GoldBrush}" />
+            <Setter Property="Foreground" Value="#171107" />
+            <Setter Property="BorderBrush" Value="{StaticResource GoldBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="17,10" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="CornerRadius" Value="9" />
+        </Style>
+        <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource GoldBrightBrush}" />
+            <Setter Property="Foreground" Value="#171107" />
+        </Style>
+        <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource GoldDarkBrush}" />
+            <Setter Property="Foreground" Value="#171107" />
+        </Style>
+
+        <Style Selector="Button.secondary">
+            <Setter Property="Background" Value="{StaticResource PanelRaisedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+        </Style>
+        <Style Selector="Button.secondary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource PanelHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        </Style>
+        <Style Selector="Button.secondary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        </Style>
+
+        <Style Selector="TextBox">
+            <Setter Property="Background" Value="{StaticResource FieldBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Padding" Value="13,10" />
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="CaretBrush" Value="{StaticResource GoldBrightBrush}" />
+            <Setter Property="SelectionBrush" Value="#6BA77C32" />
+        </Style>
+
+        <Style Selector="ComboBox">
+            <Setter Property="Background" Value="{StaticResource FieldBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Padding" Value="13,10" />
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+
+        <Style Selector="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        </Style>
+    </Application.Styles>
+</Application>

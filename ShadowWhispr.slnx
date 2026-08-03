@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/ShadowWhispr/ShadowWhispr.csproj" />
+    <Project Path="src/ShadowWhispr.Core/ShadowWhispr.Core.csproj" />
+    <Project Path="src/ShadowWhispr.Linux/ShadowWhispr.Linux.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ShadowWhispr.Tests/ShadowWhispr.Tests.csproj" />

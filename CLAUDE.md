@@ -1,8 +1,34 @@
 # ShadowWhispr — working notes
 
-WPF app, `net10.0-windows`, .NET 10. Windows-only at runtime; the checkout lives in WSL.
+Three projects since the Linux port: `src/ShadowWhispr` (WPF, `net10.0-windows`),
+`src/ShadowWhispr.Core` (shared, `net10.0`), `src/ShadowWhispr.Linux` (Avalonia,
+`net10.0`). Core keeps the `ShadowWhispr.*` namespaces so the WPF app was
+extracted without touching its usings.
 
-## Build and run from WSL
+## Linux build and run (native, on the CachyOS desktop)
+
+The .NET 10 SDK is installed via pacman. Build/run directly:
+
+```bash
+dotnet run --project src/ShadowWhispr.Linux -c Release
+```
+
+The WPF app also *compiles* here for regression checks (cannot run):
+
+```bash
+dotnet build src/ShadowWhispr/ShadowWhispr.csproj -c Release /p:EnableWindowsTargeting=true
+```
+
+Linux runtime pieces: global hotkeys read /dev/input (user must be in the
+`input` group), pasting uses a /dev/uinput virtual keyboard (udev rule in
+`packaging/linux/`), audio via parec/paplay, clipboard via wl-clipboard. The
+speech engine lives in `~/.local/share/ShadowWhispr` (venv + model + stt copy),
+built by `scripts/setup-stt.sh` using uv with `--index-strategy
+unsafe-best-match` (uv's default index strategy cannot resolve the pinned
+requirements against the PyTorch extra index). The GNOME tray icon needs the
+AppIndicator extension.
+
+## Windows build and run from WSL
 
 There is no .NET SDK in WSL — drive the Windows one through interop:
 
@@ -33,8 +59,10 @@ this folder.
 
 ## Logs
 
-`app-log.txt` next to the exe (`Services/AppLog.cs`, rotates to `app-log.old.txt`).
-Read it after launching instead of asking Dylan for console output.
+`app-log.txt` next to the exe (`Core/Services/AppLog.cs`, rotates to
+`app-log.old.txt`; falls back to `~/.local/state/ShadowWhispr` when the exe dir
+is read-only). Read it after launching instead of asking Dylan for console
+output. Linux speech setup logs to `~/.local/share/ShadowWhispr/setup-log.txt`.
 
 ## Tests
 
