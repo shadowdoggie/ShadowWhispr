@@ -130,6 +130,36 @@ public sealed class LinuxTrayIconService : IDisposable
         });
     }
 
+    /// <summary>
+    /// Whether anything on the session bus can actually host a tray icon.
+    /// Stock GNOME removed tray support, so without the AppIndicator extension
+    /// the icon would silently never appear — callers use this to tell the
+    /// user what to install instead of leaving them wondering.
+    /// </summary>
+    public static bool IsTrayHostAvailable()
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "busctl",
+                ArgumentList = { "--user", "--no-pager", "status", "org.kde.StatusNotifierWatcher" },
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            using var process = Process.Start(startInfo);
+            if (process is null) return true; // cannot tell; assume the best
+            process.WaitForExit(3000);
+            return process.ExitCode == 0;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write("Could not probe for a tray host; assuming one exists", exception);
+            return true;
+        }
+    }
+
     /// <summary>Shows a desktop notification through notify-send; GNOME has no balloon API.</summary>
     public void ShowMessage(string title, string body)
     {

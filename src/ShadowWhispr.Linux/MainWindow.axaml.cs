@@ -118,6 +118,15 @@ public partial class MainWindow : Window
         _tray.SetStatus("Starting…");
         _tray.SetState(TrayState.Starting);
 
+        if (!LinuxTrayIconService.IsTrayHostAvailable())
+        {
+            AppLog.Write("No StatusNotifierWatcher on the session bus; the tray icon will not be shown by this desktop");
+            _tray.ShowMessage(
+                "ShadowWhispr's tray icon is hidden by your desktop",
+                "GNOME hides tray icons by default. Install and enable the 'AppIndicator and KStatusNotifierItem Support' " +
+                "extension (gnome-shell-extension-appindicator), then restart ShadowWhispr.");
+        }
+
         try
         {
             _hotkey.Hotkey = ParseOptionalHotkey(_settings.Hotkey);
