@@ -45,7 +45,12 @@ public sealed class LinuxTrayIconService : IDisposable
         _pauseItem = new NativeMenuItem("Pause dictation") { ToggleType = NativeMenuItemToggleType.CheckBox };
         _pauseItem.Click += (_, _) =>
         {
-            if (!_syncingPause) PauseToggled?.Invoke(this, _pauseItem.IsChecked);
+            if (_syncingPause) return;
+            // Avalonia's DBus menu only raises Click — it never flips IsChecked
+            // itself, so reading it here would always report the old state.
+            var paused = !_pauseItem.IsChecked;
+            _pauseItem.IsChecked = paused;
+            PauseToggled?.Invoke(this, paused);
         };
 
         var openItem = new NativeMenuItem("Open ShadowWhispr");

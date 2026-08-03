@@ -1229,6 +1229,15 @@ public partial class MainWindow : Window
         _shuttingDown = true;
 
         AppLog.Write("App closing");
+        // Quit must always quit: a hung dispose step used to leave a zombie
+        // process holding the single-instance lock, so nothing could relaunch.
+        new Thread(() =>
+        {
+            Thread.Sleep(TimeSpan.FromSeconds(10));
+            AppLog.Write("Clean shutdown took too long; exiting forcefully");
+            Environment.Exit(0);
+        })
+        { IsBackground = true, Name = "shutdown-watchdog" }.Start();
         // Each shutdown step is isolated and logged so one failure can neither
         // hide from the log nor prevent the remaining cleanup from running.
         if (_startupComplete)

@@ -391,7 +391,9 @@ public sealed class LinuxAudioRecorderService : IDisposable, IAsyncDisposable
         string? filePath = null;
         try
         {
-            filePath = await StopAsync().ConfigureAwait(false);
+            // Bounded: if parec ignores SIGINT the shutdown must not hang on it.
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            filePath = await StopAsync(timeout.Token).ConfigureAwait(false);
         }
         catch (Exception exception)
         {

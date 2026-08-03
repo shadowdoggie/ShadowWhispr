@@ -219,7 +219,7 @@ public sealed class ParakeetService : IAsyncDisposable
 
         try
         {
-            if (input is not null) await input.DisposeAsync();
+            if (input is not null) await input.DisposeAsync().ConfigureAwait(false);
         }
         catch { }
 
@@ -299,7 +299,10 @@ public sealed class ParakeetService : IAsyncDisposable
             _disposed = true;
         }
 
-        await TearDownWorkerAsync();
+        // ConfigureAwait(false) throughout the teardown: both apps block on
+        // DisposeAsync from their UI thread during shutdown, and a continuation
+        // posted back to that blocked thread would deadlock the quit.
+        await TearDownWorkerAsync().ConfigureAwait(false);
         _requestLock.Dispose();
     }
 }

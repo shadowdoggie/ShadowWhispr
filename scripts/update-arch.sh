@@ -61,5 +61,8 @@ echo ""
 echo "Update to $TAG finished. ShadowWhispr will now restart."
 pkill -x shadowwhispr 2>/dev/null || true
 sleep 1
+# Relaunch from home, not from $WORK: the trap deletes $WORK on exit, and an
+# app inheriting a deleted cwd fails to start any helper process afterwards.
+cd "$HOME" || cd /
 (nohup shadowwhispr >/dev/null 2>&1 &)
 finish

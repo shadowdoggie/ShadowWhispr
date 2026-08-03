@@ -18,6 +18,19 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // The self-updater used to relaunch the app from a temp build dir it
+        // deleted moments later, and a deleted working directory makes every
+        // Process.Start (parec, pacat, notify-send…) throw. Home always exists.
+        try
+        {
+            Directory.SetCurrentDirectory(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write("Could not move the working directory to home", exception);
+        }
+
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             if (e.ExceptionObject is Exception exception)

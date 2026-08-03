@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using ShadowWhispr.Services;
 
@@ -13,6 +14,11 @@ namespace ShadowWhispr.Linux.Services;
 /// is closed again after a short idle pause so ShadowWhispr does not hold the
 /// speakers open all day, and so a device change (headphones plugged in) is
 /// picked up on the next cue.
+///
+/// All pipe traffic happens on one dedicated worker thread. Writing into
+/// pacat's stdin blocks when the sink stalls (seen after suspend/resume), and
+/// doing that on the UI thread froze the whole app, tray menu included —
+/// <see cref="Play"/> therefore only enqueues and can never block.
 /// </summary>
 public sealed class LinuxTonePlayer : IDisposable
 {
@@ -38,16 +44,17 @@ public sealed class LinuxTonePlayer : IDisposable
     /// </summary>
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(60);
 
-    private readonly object _gate = new();
-    private readonly Timer _idleTimer;
-    private Process? _pacat;
+    private readonly BlockingCollection<byte[]> _queue = new(boundedCapacity: 8);
+    private readonly Thread _worker;
+    private volatile Process? _pacat;
     private byte[]? _pressedCue;
     private byte[]? _releasedCue;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     public LinuxTonePlayer()
     {
-        _idleTimer = new Timer(_ => CloseStream(), null, Timeout.Infinite, Timeout.Infinite);
+        _worker = new Thread(WorkerLoop) { IsBackground = true, Name = "tone-player" };
+        _worker.Start();
     }
 
     public event EventHandler<Exception>? PlaybackFailed;
@@ -63,31 +70,63 @@ public sealed class LinuxTonePlayer : IDisposable
 
     private void Play(byte[] samples)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (Muted) return;
-
+        if (_disposed || Muted) return;
         try
         {
-            lock (_gate)
+            // A full queue means the sink has been stalled for a while; the cue
+            // is dropped rather than ever making a caller wait.
+            _queue.TryAdd(samples);
+        }
+        catch (InvalidOperationException)
+        {
+            // Disposed between the check and the add — nothing left to cue.
+        }
+    }
+
+    /// <summary>
+    /// The only thread that touches pacat's stdin. Waits for cues, opens the
+    /// stream on demand and closes it again after <see cref="IdleClose"/>
+    /// without one.
+    /// </summary>
+    private void WorkerLoop()
+    {
+        while (true)
+        {
+            byte[]? samples;
+            try
             {
-                if (_disposed) return;
+                if (!_queue.TryTake(out samples, IdleClose))
+                {
+                    if (_queue.IsCompleted) break;
+                    DisposeStream(); // idle — release the speakers until the next cue
+                    continue;
+                }
+            }
+            catch (Exception)
+            {
+                break; // collection disposed or completed mid-wait
+            }
+
+            try
+            {
                 EnsureStream();
                 // Appended to whatever is still sounding rather than replacing
                 // it: each cue is short, so a fast press pair plays both in order.
                 var stdin = _pacat!.StandardInput.BaseStream;
                 stdin.Write(samples, 0, samples.Length);
                 stdin.Flush();
-                _idleTimer.Change(IdleClose, Timeout.InfiniteTimeSpan);
+            }
+            catch (Exception ex)
+            {
+                DisposeStream();
+                if (!_disposed) PlaybackFailed?.Invoke(this, ex);
             }
         }
-        catch (Exception ex)
-        {
-            CloseStream();
-            PlaybackFailed?.Invoke(this, ex);
-        }
+
+        DisposeStream();
     }
 
-    /// <summary>Opens the playback stream if it is not already running. Call under <see cref="_gate"/>.</summary>
+    /// <summary>Opens the playback stream if it is not already running. Worker thread only.</summary>
     private void EnsureStream()
     {
         if (_pacat is { HasExited: false }) return;
@@ -116,15 +155,7 @@ public sealed class LinuxTonePlayer : IDisposable
         stdin.Flush();
     }
 
-    private void CloseStream()
-    {
-        lock (_gate)
-        {
-            DisposeStream();
-        }
-    }
-
-    /// <summary>Call under <see cref="_gate"/>.</summary>
+    /// <summary>Worker thread only.</summary>
     private void DisposeStream()
     {
         if (_pacat is null) return;
@@ -191,13 +222,17 @@ public sealed class LinuxTonePlayer : IDisposable
 
     public void Dispose()
     {
-        lock (_gate)
-        {
-            if (_disposed) return;
-            _disposed = true;
-        }
+        if (_disposed) return;
+        _disposed = true;
+        _queue.CompleteAdding();
 
-        _idleTimer.Dispose();
-        CloseStream();
+        // Killing pacat unblocks a worker stuck writing into a stalled sink;
+        // the worker then sees the completed queue and cleans up after itself.
+        try { _pacat?.Kill(); } catch { }
+
+        if (!_worker.Join(TimeSpan.FromSeconds(2)))
+        {
+            AppLog.Write("The tone player worker did not stop in time; it dies with the process");
+        }
     }
 }
