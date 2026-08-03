@@ -97,8 +97,11 @@ fi
 [ -f "$REQUIREMENTS" ] || fail "The package list is missing from $REQUIREMENTS. Please reinstall ShadowWhispr."
 
 step 22 "Downloading speech and CUDA packages (about 2 GB)"
+# unsafe-best-match matches pip's index semantics, which the pinned
+# requirements (PyPI packages + the PyTorch cu128 extra index) rely on.
 retry "Installing the speech-to-text packages" \
-    "$UV" pip install --python "$VENV_PYTHON" --requirement "$REQUIREMENTS"
+    "$UV" pip install --python "$VENV_PYTHON" --index-strategy unsafe-best-match \
+    --requirement "$REQUIREMENTS"
 
 step 58 "Checking your NVIDIA GPU"
 if ! "$VENV_PYTHON" -c "import torch; assert torch.cuda.is_available(), 'CUDA is unavailable'; print('CUDA ready:', torch.cuda.get_device_name(0))"; then

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=ShadowWhispr
+GenericName=Voice typing
+Comment=Hold a key. Speak. It types for you.
+Exec=shadowwhispr
+Icon=shadowwhispr
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=voice;dictation;speech;typing;whisper;
+StartupWMClass=shadowwhispr

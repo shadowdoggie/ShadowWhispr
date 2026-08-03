@@ -1,0 +1,38 @@
+# Maintainer: shadowdoggie
+# Installs the prebuilt linux-x64 release of ShadowWhispr (self-contained
+# .NET, no dotnet runtime dependency). The speech engine itself is downloaded
+# on first run into ~/.local/share/ShadowWhispr by the in-app setup.
+pkgname=shadowwhispr-bin
+pkgver=0.18.0
+pkgrel=1
+pkgdesc="Hold a key. Speak. It types for you — local, offline voice typing (NVIDIA GPU required)"
+arch=('x86_64')
+url="https://github.com/shadowdoggie/ShadowWhispr"
+license=('AGPL-3.0-only')
+depends=('libpulse' 'wl-clipboard' 'curl' 'bash')
+optdepends=(
+    'gnome-shell-extension-appindicator: tray icon on GNOME'
+    'uv: reused for speech setup instead of a private download'
+)
+provides=('shadowwhispr')
+conflicts=('shadowwhispr')
+install=shadowwhispr.install
+source=("$url/releases/download/v$pkgver/ShadowWhispr-linux-x64-$pkgver.tar.gz")
+sha256sums=('SKIP')  # release checksums are published as .sha256 next to the tarball
+
+package() {
+    install -dm755 "$pkgdir/opt/shadowwhispr"
+    cp -a "$srcdir/ShadowWhispr/." "$pkgdir/opt/shadowwhispr/"
+
+    install -dm755 "$pkgdir/usr/bin"
+    ln -s /opt/shadowwhispr/shadowwhispr "$pkgdir/usr/bin/shadowwhispr"
+
+    install -Dm644 "$pkgdir/opt/shadowwhispr/packaging/shadowwhispr.desktop" \
+        "$pkgdir/usr/share/applications/shadowwhispr.desktop"
+    install -Dm644 "$pkgdir/opt/shadowwhispr/packaging/shadowwhispr.png" \
+        "$pkgdir/usr/share/icons/hicolor/256x256/apps/shadowwhispr.png"
+    install -Dm644 "$pkgdir/opt/shadowwhispr/packaging/60-shadowwhispr-uinput.rules" \
+        "$pkgdir/usr/lib/udev/rules.d/60-shadowwhispr-uinput.rules"
+    install -Dm644 "$pkgdir/opt/shadowwhispr/packaging/shadowwhispr-uinput.conf" \
+        "$pkgdir/usr/lib/modules-load.d/shadowwhispr-uinput.conf"
+}
