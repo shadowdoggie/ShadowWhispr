@@ -106,6 +106,14 @@ public sealed class LinuxTonePlayer : IDisposable
 
         _pacat = Process.Start(startInfo)
             ?? throw new InvalidOperationException("pacat could not be started — is PipeWire/Pulse running?");
+
+        // A freshly opened stream still clips its first samples while PipeWire
+        // wakes the sink, so let the wake-up happen over silence: the first
+        // real cue then starts on an already-running sink.
+        var preRoll = new byte[SampleRate * 2 * 200 / 1000];
+        var stdin = _pacat.StandardInput.BaseStream;
+        stdin.Write(preRoll, 0, preRoll.Length);
+        stdin.Flush();
     }
 
     private void CloseStream()
