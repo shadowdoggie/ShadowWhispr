@@ -55,7 +55,7 @@ public sealed class SpeechSetupService
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = "powershell.exe",
+            FileName = OperatingSystem.IsWindows() ? "powershell.exe" : "bash",
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
@@ -64,10 +64,13 @@ public sealed class SpeechSetupService
             StandardErrorEncoding = Encoding.UTF8,
             WorkingDirectory = scriptDirectory
         };
-        startInfo.ArgumentList.Add("-NoProfile");
-        startInfo.ArgumentList.Add("-ExecutionPolicy");
-        startInfo.ArgumentList.Add("Bypass");
-        startInfo.ArgumentList.Add("-File");
+        if (OperatingSystem.IsWindows())
+        {
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-ExecutionPolicy");
+            startInfo.ArgumentList.Add("Bypass");
+            startInfo.ArgumentList.Add("-File");
+        }
         startInfo.ArgumentList.Add(setupScriptPath);
         // Without a console there is nobody to press Enter, so the script must
         // not pause on failure - it would hang forever as an invisible process.

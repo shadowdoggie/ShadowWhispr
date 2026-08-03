@@ -46,7 +46,7 @@ public sealed class ParakeetService : IAsyncDisposable
 
         var appDirectory = AppContext.BaseDirectory;
         var projectRoot = FindProjectRoot(appDirectory);
-        var python = Path.Combine(projectRoot, ".venv", "Scripts", "python.exe");
+        var python = VenvPython(projectRoot);
         var setupComplete = Path.Combine(projectRoot, ".venv", "setup-complete");
         var worker = Path.Combine(projectRoot, "stt", "worker.py");
 
@@ -236,6 +236,13 @@ public sealed class ParakeetService : IAsyncDisposable
         catch { }
     }
 
+    /// <summary>The interpreter inside a local environment, per platform layout.</summary>
+    private static string VenvPython(string root) => OperatingSystem.IsWindows()
+        ? Path.Combine(root, ".venv", "Scripts", "python.exe")
+        : Path.Combine(root, ".venv", "bin", "python");
+
+    private static string SetupScriptName => OperatingSystem.IsWindows() ? "setup-stt.ps1" : "setup-stt.sh";
+
     /// <summary>
     /// Locate the one-time speech setup script. Installed builds keep it under
     /// {app}\scripts; a source checkout keeps it under {repo}\scripts.
@@ -244,10 +251,10 @@ public sealed class ParakeetService : IAsyncDisposable
     {
         foreach (var baseDir in new[] { projectRoot, appDirectory })
         {
-            var candidate = Path.Combine(baseDir, "scripts", "setup-stt.ps1");
+            var candidate = Path.Combine(baseDir, "scripts", SetupScriptName);
             if (File.Exists(candidate)) return candidate;
         }
-        return Path.Combine(appDirectory, "scripts", "setup-stt.ps1");
+        return Path.Combine(appDirectory, "scripts", SetupScriptName);
     }
 
     private static string FindProjectRoot(string start)
@@ -256,7 +263,7 @@ public sealed class ParakeetService : IAsyncDisposable
         while (directory is not null)
         {
             if (Directory.Exists(Path.Combine(directory.FullName, "stt")) &&
-                File.Exists(Path.Combine(directory.FullName, ".venv", "Scripts", "python.exe")))
+                File.Exists(VenvPython(directory.FullName)))
                 return directory.FullName;
             directory = directory.Parent;
         }

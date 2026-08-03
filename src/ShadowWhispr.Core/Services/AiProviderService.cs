@@ -782,6 +782,30 @@ public sealed partial class AiProviderService
             startInfo.ArgumentList.Add(argument);
         }
 
+        // Linux has no notion of a CLI opening its own console window, so the
+        // interactive sign-in runs inside whichever terminal emulator exists.
+        if (!OperatingSystem.IsWindows())
+        {
+            var terminal = new[] { "kgx", "gnome-terminal", "konsole", "xterm" }
+                .FirstOrDefault(name => FindOnPath(name) is not null);
+            if (terminal is null)
+            {
+                throw new AiProviderException(
+                    $"No terminal emulator found to open {command}'s sign-in. " +
+                    $"Run '{command} {string.Join(' ', arguments)}' in a terminal yourself, then try again.");
+            }
+
+            startInfo.FileName = FindOnPath(terminal)!;
+            startInfo.ArgumentList.Clear();
+            startInfo.ArgumentList.Add(terminal is "konsole" or "xterm" ? "-e" : "--");
+            startInfo.ArgumentList.Add(executable);
+            foreach (var argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+            startInfo.UseShellExecute = false;
+        }
+
         using var process = new Process { StartInfo = startInfo };
         try
         {
