@@ -1,4 +1,4 @@
-# ShadowWhispr pastes transcribed text by sending Ctrl+V from a virtual
+# ShadowWhispr pastes transcribed text by sending Shift+Insert from a virtual
 # keyboard created through /dev/uinput. This lets members of the input group
 # (which ShadowWhispr's install instructions add the user to) open it.
 KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

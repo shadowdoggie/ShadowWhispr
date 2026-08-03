@@ -5,17 +5,22 @@ namespace ShadowWhispr.Linux.Services;
 
 /// <summary>
 /// A minimal virtual keyboard created through /dev/uinput, used only to send
-/// the Ctrl+V paste chord. Injecting at the kernel level works on every
+/// the Shift+Insert paste chord. Injecting at the kernel level works on every
 /// compositor — GNOME Wayland included, which accepts no other outside input.
-/// Writing to /dev/uinput needs the udev rule the installer ships
-/// (60-shadowwhispr-uinput.rules) plus membership of the input group.
+/// Shift+Insert rather than Ctrl+V because terminal emulators handle
+/// Shift+Insert themselves: the application in the terminal receives pasted
+/// text instead of a keypress, so TUIs that bind Ctrl+V to something else
+/// (Codex and other AI CLIs use it for image paste) cannot intercept it.
+/// GUI toolkits (GTK, Qt, browsers, Electron) all treat Shift+Insert as an
+/// ordinary paste. Writing to /dev/uinput needs the udev rule the installer
+/// ships (60-shadowwhispr-uinput.rules) plus membership of the input group.
 /// </summary>
 public sealed class UinputKeyboard : IDisposable
 {
     private const ushort EvSyn = 0x00;
     private const ushort EvKey = 0x01;
-    private const ushort KeyLeftCtrl = 29;
-    private const ushort KeyV = 47;
+    private const ushort KeyLeftShift = 42;
+    private const ushort KeyInsert = 110;
 
     private const uint UiSetEvBit = 0x40045564;
     private const uint UiSetKeyBit = 0x40045565;
@@ -48,8 +53,8 @@ public sealed class UinputKeyboard : IDisposable
         try
         {
             Check(ioctl(fd, UiSetEvBit, EvKey), "UI_SET_EVBIT");
-            Check(ioctl(fd, UiSetKeyBit, KeyLeftCtrl), "UI_SET_KEYBIT ctrl");
-            Check(ioctl(fd, UiSetKeyBit, KeyV), "UI_SET_KEYBIT v");
+            Check(ioctl(fd, UiSetKeyBit, KeyLeftShift), "UI_SET_KEYBIT shift");
+            Check(ioctl(fd, UiSetKeyBit, KeyInsert), "UI_SET_KEYBIT insert");
 
             var setup = new UinputSetup
             {
@@ -74,23 +79,23 @@ public sealed class UinputKeyboard : IDisposable
         }
     }
 
-    /// <summary>Presses and releases Ctrl+V, with small gaps so no app misses an edge.</summary>
+    /// <summary>Presses and releases Shift+Insert, with small gaps so no app misses an edge.</summary>
     public void SendPasteChord()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_gate)
         {
             EnsureDevice();
-            WriteKey(KeyLeftCtrl, down: true);
+            WriteKey(KeyLeftShift, down: true);
             Sync();
             Thread.Sleep(15);
-            WriteKey(KeyV, down: true);
+            WriteKey(KeyInsert, down: true);
             Sync();
             Thread.Sleep(15);
-            WriteKey(KeyV, down: false);
+            WriteKey(KeyInsert, down: false);
             Sync();
             Thread.Sleep(15);
-            WriteKey(KeyLeftCtrl, down: false);
+            WriteKey(KeyLeftShift, down: false);
             Sync();
         }
     }
