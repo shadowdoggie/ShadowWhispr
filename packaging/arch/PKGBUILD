@@ -3,7 +3,7 @@
 # .NET, no dotnet runtime dependency). The speech engine itself is downloaded
 # on first run into ~/.local/share/ShadowWhispr by the in-app setup.
 pkgname=shadowwhispr-bin
-pkgver=0.18.5
+pkgver=0.18.6
 pkgrel=1
 pkgdesc="Hold a key. Speak. It types for you — local, offline voice typing (NVIDIA GPU required)"
 arch=('x86_64')

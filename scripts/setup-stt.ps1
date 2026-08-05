@@ -38,6 +38,30 @@ $logPath = Join-Path $repoRoot "setup-log.txt"
 $bundledPythonDir = Join-Path $repoRoot "python"
 $bundledPython = Join-Path $bundledPythonDir "python.exe"
 
+# Package installation must not inspect unrelated programs from the user's
+# PATH. Python deliberately refuses to traverse some untrusted junctions (for
+# example an app-managed "current" link), and pip can touch PATH while creating
+# console scripts even though ShadowWhispr never needs anything from it. Keep
+# only Windows itself plus our private runtime for every Python child process.
+function Set-IsolatedSetupPath {
+    $windowsDirectory = $env:SystemRoot
+    if (-not $windowsDirectory) {
+        $windowsDirectory = [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows)
+    }
+
+    $entries = @(
+        (Join-Path $venvPath "Scripts"),
+        $bundledPythonDir,
+        (Join-Path $windowsDirectory "System32"),
+        $windowsDirectory,
+        (Join-Path $windowsDirectory "System32\Wbem"),
+        (Join-Path $windowsDirectory "System32\WindowsPowerShell\v1.0")
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+
+    $env:PATH = $entries -join ";"
+    Write-Host "Using an isolated PATH for the local speech environment."
+}
+
 # Emits one progress line for ShadowWhispr's in-app setup screen, plus the same
 # text for anyone watching the console or reading setup-log.txt afterwards.
 function Write-Step {
@@ -149,7 +173,10 @@ function Invoke-WithRetry {
         $ErrorActionPreference = "Continue"
         try {
             $output = & $Exe @Arguments 2>&1
-            $text = ($output | Out-String).Trim()
+            # Windows PowerShell wraps native stderr in ErrorRecord objects.
+            # Out-String formats those with CategoryInfo noise and can hide the
+            # actual error; ToString() keeps the native program's own message.
+            $text = (($output | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine).Trim()
             if ($text) { Write-Host $text }
         }
         catch {
@@ -183,6 +210,7 @@ try {
     # --- Build the local environment from ShadowWhispr's own Python ---------
     Write-Step -Percent 2 -Message "Preparing ShadowWhispr's Python"
     $python = Resolve-BundledPython
+    Set-IsolatedSetupPath
 
     # A working environment is kept as-is, so upgrading an install that already
     # finished setup changes nothing. A broken one is rebuilt rather than used:
@@ -318,7 +346,7 @@ catch {
     Write-Host "SETUP FAILED: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host ""
     Write-Host "A full log was saved to: $logPath" -ForegroundColor Yellow
-    Write-Host "The most common cause is an unstable internet connection."
+    Write-Host "The exact cause is shown above; setup will resume completed downloads when retried."
     Write-Host "Click 'Set up speech now' in ShadowWhispr to try again - it resumes where it left off."
     try { Stop-Transcript | Out-Null } catch {}
     if (-not $env:SHADOWWHISPR_SETUP_NOPAUSE) {

@@ -461,7 +461,7 @@ public partial class MainWindow : Window
         {
             SetSetupProgress(_setupPercent, "Setup stopped");
             SetupStatus.Text =
-                $"{failure}\n\nThe most common cause is an unstable internet connection. " +
+                $"{failure}\n\nThe exact cause is shown above and saved in the setup log. " +
                 "Click \"Set up speech now\" to try again — it resumes where it left off.";
             SetupRunButton.IsEnabled = true;
             return;
