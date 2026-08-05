@@ -877,14 +877,24 @@ public sealed partial class AiProviderService
     /// invisible to it until the user thought to fully quit and reopen the app.
     /// Re-reading the registry keeps detection honest without a restart.
     /// </summary>
-    private static string? FindOnPath(string command)
+    internal static string? FindOnPath(string command)
     {
-        var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT")
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var candidates = Path.HasExtension(command)
-            ? [command]
-            : extensions.Select(extension => command + extension.ToLowerInvariant()).Prepend(command);
-        var candidateList = candidates.ToList();
+        // On Windows, only names carrying a PATHEXT extension are startable —
+        // never the bare name. npm installs a POSIX sh wrapper named exactly
+        // "codex" beside its "codex.cmd" shim, and whichever PATH directory is
+        // searched first, trying the bare name first hands Windows a shell
+        // script it cannot start. Elsewhere the bare name IS the executable.
+        List<string> candidateList;
+        if (Path.HasExtension(command) || !OperatingSystem.IsWindows())
+        {
+            candidateList = [command];
+        }
+        else
+        {
+            var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            candidateList = extensions.Select(extension => command + extension.ToLowerInvariant()).ToList();
+        }
 
         var directories = GetSearchDirectories();
         foreach (var directory in directories)
