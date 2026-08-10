@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace ShadowWhispr.Services;
@@ -106,31 +107,31 @@ public static class VoiceCommandService
 
         try
         {
-            AppLog.Write($"Voice command executing: launching {command.MatchedName} ({command.Executable})");
+            // Resolve to a full path with the same registry-aware search the AI
+            // provider layer uses, so a CLI installed after ShadowWhispr started
+            // (or outside this process's PATH snapshot) is still found. Falls
+            // back to the bare name if resolution fails, keeping the shell's own
+            // lookup in play rather than inventing a new failure.
+            var executable = AiProviderService.FindOnPath(command.Executable) ?? command.Executable;
+            AppLog.Write($"Voice command executing: launching {command.MatchedName} ({executable}) in PowerShell");
 
-            var wtPath = FindOnPath("wt.exe") ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                @"Microsoft\WindowsApps\wt.exe");
-
-            ProcessStartInfo startInfo;
-            if (File.Exists(wtPath))
+            // Run the CLI inside PowerShell and keep the window open. The
+            // executable path travels base64-encoded through -EncodedCommand, so
+            // no amount of spaces, quotes or special characters in it can break
+            // the command line. If Windows has a default terminal app configured
+            // (e.g. Windows Terminal), the PowerShell window opens inside it.
+            var powershell = FindOnPath("powershell.exe") ?? Path.Combine(
+                Environment.SystemDirectory,
+                @"WindowsPowerShell\v1.0\powershell.exe");
+            var encodedCommand = Convert.ToBase64String(
+                Encoding.Unicode.GetBytes($"& '{executable}'"));
+            var startInfo = new ProcessStartInfo
             {
-                startInfo = new ProcessStartInfo
-                {
-                    FileName = wtPath,
-                    Arguments = command.Executable,
-                    UseShellExecute = true
-                };
-            }
-            else
-            {
-                startInfo = new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c start cmd.exe /k \"{command.Executable}\"",
-                    UseShellExecute = true
-                };
-            }
+                FileName = powershell,
+                Arguments = $"-NoExit -EncodedCommand {encodedCommand}",
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(executable)
+            };
 
             var proc = Process.Start(startInfo);
             AppLog.Write($"Voice command process started for {command.MatchedName} (PID: {proc?.Id ?? 0})");
