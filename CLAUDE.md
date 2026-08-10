@@ -5,6 +5,49 @@ Three projects since the Linux port: `src/ShadowWhispr` (WPF, `net10.0-windows`)
 `net10.0`). Core keeps the `ShadowWhispr.*` namespaces so the WPF app was
 extracted without touching its usings.
 
+## Windows UI shell (Midnight Aurora)
+
+`MainWindow.xaml` is no longer one long maximized scrolling page. The window
+opens at 1180x820 (`MinWidth` 1000, `MinHeight` 660, **not** maximized) and is a
+left sidebar plus a left-tabbed `TabControl` (`SectionTabs`) with four sections:
+**Dictation**, **AI Cleanup**, **Transcript**, **Settings**. Each `TabItem`'s
+`Header` is the section name and its `Tag` is the one-line subtitle; the
+persistent header strip binds to both, and carries the auto-save pill
+(`SaveStatusPill` / `SaveDot` / `SaveStatus`). The sidebar holds the brand mark,
+the engine status pill (`EngineDot` / `EngineStatus`) and the **Pause dictation**
+button (`PauseButton`), which stays in sync with the tray menu item through
+`SetDictationPaused`.
+
+Palette: violet-black surfaces, an iris `#7C6BF2` -> aurora cyan `#46D9F5`
+signature gradient, mint `#4FE0C0` for good status, coral `#FF6B85` for
+warnings. Section/nav glyphs are hand-stroked `Canvas` paths inside `Viewbox`es,
+not a font or image set. `scripts/generate-icon.py` regenerates the matching app
+icon (a luminous whisper wave on a dark tile) into `src/ShadowWhispr/icon.ico`;
+it no longer draws the old gold microphone.
+
+When adding UI, put it inside the right section rather than appending to the
+bottom of a page, and reuse the shared styles (`Card`, `SettingRow`,
+`SectionTitle`, `SectionCaption`, `FieldLabel`, `Hint`, `Pill`,
+`SecondaryButton`) instead of inlining colours.
+
+## Start with Windows
+
+`src/ShadowWhispr/Services/StartupService.cs` owns a single `HKCU\...\Run`
+value named `ShadowWhispr` — no admin, no scheduled task. `Apply(bool enabled,
+bool startMinimized = true)` writes `"<exe>" --tray` when minimized and `"<exe>"`
+when not; `StartsMinimized()` reports whether the existing entry carries
+`--tray`, defaulting to `true` so entries written before the option existed keep
+behaving exactly as they did. The registry is the source of truth on load: the
+UI reads `IsEnabled()` / `StartsMinimized()` and only falls back to
+`AppSettings.StartMinimized` (default `true`) while autostart is off.
+
+In the Settings section, `StartMinimizedCheck` is nested under
+`StartWithWindowsCheck` and binds `IsEnabled` to it, so it greys out while
+autostart is off; `StartMinimizedToggled` only ever rewrites an existing entry
+and can never switch autostart on by itself. `StartupStatus` shows the one-line
+`DescribeAutostart` summary, and both handlers snap the checkboxes back to the
+real registry state if Windows refuses the write.
+
 ## Linux build and run (native, on the CachyOS desktop)
 
 The .NET 10 SDK is installed via pacman. Build/run directly:

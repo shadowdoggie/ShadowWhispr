@@ -38,7 +38,9 @@ Speech recognition runs **entirely on your own machine** using NVIDIA's Parakeet
 
 <br>
 
-<img src="docs/main-window.png" alt="The ShadowWhispr main window: hotkey and microphone settings on top, the optional AI cleanup section below." width="720">
+<img src="docs/main-window.png" alt="The ShadowWhispr window: a left sidebar with Dictation, AI Cleanup, Transcript and Settings sections, showing the Dictation section." width="720">
+
+*The window is split into four sections down the left — **Dictation**, **AI Cleanup**, **Transcript** and **Settings** — so you only ever see the handful of options you came for. Everything saves the moment you change it.*
 
 </div>
 
@@ -70,7 +72,7 @@ If your brain works like mine, I hope it helps you get the words out too. 💜
 | 👆 **Hold or tap, same key** | Hold the key while you speak, or tap it quickly (under half a second) and recording stays on hands-free until you press the key again. |
 | 🎙️ **Pick your microphone** | Choose which mic ShadowWhispr records from, or follow the Windows default. The choice is remembered — even if the mic is unplugged for a while. |
 | 📬 **No waiting between messages** | Start dictating the next message while the previous one is still transcribing or being cleaned up. Each one is queued and pasted into the field it was dictated into. |
-| 🔔 **Lives in the tray** | Closing the window keeps ShadowWhispr listening from the system tray. Optionally start it with Windows — **off by default**. |
+| 🔔 **Lives in the tray** | Closing the window keeps ShadowWhispr listening from the system tray. Optionally start it with Windows — **off by default** — either hidden in the tray or with its window open. |
 | 🤖 **Optional AI cleanup** | Polish rough dictation with your **existing** Claude, ChatGPT/Codex, or Google Antigravity login. Off by default. |
 
 ---
@@ -89,11 +91,13 @@ The **first run** installs the local speech environment and downloads the Parake
 
 ### 🔔 Tray and startup
 
-Closing the ShadowWhispr window doesn't stop it — it keeps running in the system tray so your hotkey still works. **Quit ShadowWhispr** from the tray icon's menu stops it for real, and the tray's tooltip always tells you which hotkeys are armed. You can turn the tray behaviour off with a checkbox.
+Closing the ShadowWhispr window doesn't stop it — it keeps running in the system tray so your hotkey still works. **Quit ShadowWhispr** from the tray icon's menu stops it for real, and the tray's tooltip always tells you which hotkeys are armed. You can turn the tray behaviour off with a checkbox in the window's **Settings** section.
 
-**Pause dictation** in the tray menu temporarily hands your hotkeys back to other apps — handy when a game uses the same keys. Tick it to pause, untick to resume; ShadowWhispr always starts unpaused.
+**Pause dictation** temporarily hands your hotkeys back to other apps — handy when a game uses the same keys. It's in the tray icon's menu and as a button in the window's sidebar, and the two always agree; press it again to resume. ShadowWhispr always starts unpaused.
 
-**Start with Windows** is a separate checkbox and is **off by default**. Turning it on adds a normal per-user startup entry (no admin, no scheduled task) that launches ShadowWhispr straight into the tray; unticking it removes the entry again.
+**Start with Windows** is a separate checkbox in the same place and is **off by default**. Turning it on adds a normal per-user startup entry (no admin, no scheduled task) so ShadowWhispr is ready the moment you log in; unticking it removes the entry again.
+
+Underneath it sits **Start minimized in the tray**, which decides what that automatic start looks like. It's **on** to begin with, so ShadowWhispr comes up quietly in the tray with your hotkeys already armed and no window in your face. Untick it and the window opens at login instead — handy if you like seeing that it's running. The option is greyed out until **Start with Windows** is ticked, because on its own there's nothing for it to change, and a line underneath spells out exactly what will happen next time you log in. If you already had start-with-Windows switched on before this option existed, nothing changes: it stays set to start in the tray, exactly as it always did.
 
 ### 🐧 Arch Linux
 
@@ -108,8 +112,8 @@ devices and pastes through a virtual keyboard:
 ```bash
 sudo usermod -aG input $USER        # then log out and back in
 # the PKGBUILD installs the uinput udev rule; for a manual tarball install:
-sudo cp packaging/60-shadowwhispr-uinput.rules /etc/udev/rules.d/
-sudo cp packaging/shadowwhispr-uinput.conf /etc/modules-load.d/
+sudo cp packaging/linux/60-shadowwhispr-uinput.rules /etc/udev/rules.d/
+sudo cp packaging/linux/shadowwhispr-uinput.conf /etc/modules-load.d/
 sudo modprobe uinput && sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput
 ```
 

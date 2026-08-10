@@ -150,6 +150,14 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; }
 
     /// <summary>
+    /// When ShadowWhispr starts with Windows, come up hidden in the tray instead
+    /// of opening the window. Only meaningful while <see cref="StartWithWindows"/>
+    /// is on; the checkbox that controls it is disabled otherwise. On by default,
+    /// which matches how auto-start has always behaved.
+    /// </summary>
+    public bool StartMinimized { get; set; } = true;
+
+    /// <summary>
     /// Silences the short start and stop cues that play around a dictation.
     /// Off by default, so the sounds keep working unless they are turned off.
     /// </summary>

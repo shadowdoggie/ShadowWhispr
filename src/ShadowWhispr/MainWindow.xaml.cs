@@ -124,7 +124,7 @@ public partial class MainWindow : Window
                 AppLog.Write("Started with --tray; hiding the main window");
                 Hide();
                 ShowInTaskbar = true;
-                WindowState = WindowState.Maximized;
+                WindowState = WindowState.Normal;
             }
         }
 
@@ -158,7 +158,7 @@ public partial class MainWindow : Window
     private void ShowFromTray()
     {
         Show();
-        if (WindowState == WindowState.Minimized) WindowState = WindowState.Maximized;
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate();
         Topmost = true;
         Topmost = false;
@@ -197,11 +197,10 @@ public partial class MainWindow : Window
         if (!_uiReady) return;
 
         var wanted = StartWithWindowsCheck.IsChecked == true;
-        if (StartupService.Apply(wanted))
+        var minimized = StartMinimizedCheck.IsChecked == true;
+        if (StartupService.Apply(wanted, minimized))
         {
-            StartupStatus.Text = wanted
-                ? "ShadowWhispr will start hidden in the tray when you log in."
-                : string.Empty;
+            StartupStatus.Text = DescribeAutostart(wanted, minimized);
         }
         else
         {
@@ -213,6 +212,41 @@ public partial class MainWindow : Window
 
         ReadUiIntoSettings();
     }
+
+    /// <summary>
+    /// The "start minimized" sub-option. It only ever rewrites the existing Run
+    /// entry, so it cannot switch autostart on by itself; the checkbox is
+    /// disabled in XAML while autostart is off.
+    /// </summary>
+    private void StartMinimizedToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady) return;
+
+        var minimized = StartMinimizedCheck.IsChecked == true;
+        if (StartWithWindowsCheck.IsChecked == true)
+        {
+            if (StartupService.Apply(enabled: true, startMinimized: minimized))
+            {
+                StartupStatus.Text = DescribeAutostart(true, minimized);
+            }
+            else
+            {
+                StartupStatus.Text = "Windows refused this change — see app-log.txt";
+                _uiReady = false;
+                StartMinimizedCheck.IsChecked = StartupService.StartsMinimized();
+                _uiReady = true;
+            }
+        }
+
+        ReadUiIntoSettings();
+    }
+
+    /// <summary>One sentence describing exactly what will happen at the next login.</summary>
+    private static string DescribeAutostart(bool enabled, bool minimized) => enabled
+        ? minimized
+            ? "ShadowWhispr will start hidden in the tray when you log in."
+            : "ShadowWhispr will open its window when you log in."
+        : string.Empty;
 
     // --- Automatic + manual update checking ------------------------------
 
@@ -731,9 +765,13 @@ public partial class MainWindow : Window
         var autostartActive = StartupService.IsEnabled();
         StartWithWindowsCheck.IsChecked = autostartActive;
         _settings.StartWithWindows = autostartActive;
-        StartupStatus.Text = autostartActive
-            ? "ShadowWhispr will start hidden in the tray when you log in."
-            : string.Empty;
+        // While autostart is on the registry entry says whether it comes up in
+        // the tray; with it off there is nothing to read, so the saved
+        // preference is what the (disabled) checkbox shows.
+        var startsMinimized = autostartActive ? StartupService.StartsMinimized() : _settings.StartMinimized;
+        StartMinimizedCheck.IsChecked = startsMinimized;
+        _settings.StartMinimized = startsMinimized;
+        StartupStatus.Text = DescribeAutostart(autostartActive, startsMinimized);
         AiEnabledCheck.IsChecked = _settings.AiEnabled;
         SelectComboText(ProviderCombo, _settings.Provider);
         InstructionBox.Text = _settings.CustomInstruction;
@@ -1216,6 +1254,7 @@ public partial class MainWindow : Window
         }
         _settings.KeepRunningInTray = KeepRunningInTrayCheck.IsChecked == true;
         _settings.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
+        _settings.StartMinimized = StartMinimizedCheck.IsChecked == true;
         _settings.SoundCuesMuted = MuteSoundCuesCheck.IsChecked == true;
         _tones.Muted = _settings.SoundCuesMuted;
         _settings.AiEnabled = AiEnabledCheck.IsChecked == true;

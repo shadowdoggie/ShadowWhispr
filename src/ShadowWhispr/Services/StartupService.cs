@@ -35,10 +35,34 @@ public static class StartupService
     }
 
     /// <summary>
+    /// True when the existing Run entry starts ShadowWhispr hidden in the tray.
+    /// Entries written before this option existed always carried the tray flag,
+    /// so an older entry reports true and the checkbox matches what happens.
+    /// </summary>
+    public static bool StartsMinimized()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
+            if (key?.GetValue(ValueName) is not string existing || existing.Length == 0) return true;
+            return existing.Contains(TrayArgument, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write("Could not read the start-minimized setting", exception);
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Applies the requested state. Returns false when Windows refused the
     /// change, so the UI can fall back to reflecting reality instead of a lie.
     /// </summary>
-    public static bool Apply(bool enabled)
+    /// <param name="startMinimized">
+    /// When true the auto-started copy is launched with <see cref="TrayArgument"/>
+    /// so it comes up hidden in the tray; when false it opens its window normally.
+    /// </param>
+    public static bool Apply(bool enabled, bool startMinimized = true)
     {
         try
         {
@@ -59,8 +83,11 @@ public static class StartupService
                     return false;
                 }
 
-                key.SetValue(ValueName, $"\"{executable}\" {TrayArgument}", RegistryValueKind.String);
-                AppLog.Write($"Start with Windows enabled -> \"{executable}\" {TrayArgument}");
+                var command = startMinimized
+                    ? $"\"{executable}\" {TrayArgument}"
+                    : $"\"{executable}\"";
+                key.SetValue(ValueName, command, RegistryValueKind.String);
+                AppLog.Write($"Start with Windows enabled -> {command}");
             }
             else
             {
