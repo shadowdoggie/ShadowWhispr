@@ -624,6 +624,17 @@
                                               Checked="SoundCuesToggled" Unchecked="SoundCuesToggled" />
                                 </Border>
 
+                                <Border Style="{StaticResource SettingRow}">
+                                    <StackPanel>
+                                        <CheckBox x:Name="VoiceCommandsCheck"
+                                                  Content="Voice commands (launch CLI tools like AGY, OpenCode, Codex, Claude, Grok)"
+                                                  FontSize="13" VerticalAlignment="Center"
+                                                  Checked="VoiceCommandsToggled" Unchecked="VoiceCommandsToggled" />
+                                        <TextBlock Margin="31,7,0,0" Style="{StaticResource Hint}"
+                                                   Text="Listens for 'open AGY', 'open code', 'codec CLI', 'cloud code', 'grog build' when dictating with the raw speech keybind (not during AI cleanup)." />
+                                    </StackPanel>
+                                </Border>
+
                                 <Border Style="{StaticResource SettingRow}" Margin="0">
                                     <StackPanel>
                                         <Grid>

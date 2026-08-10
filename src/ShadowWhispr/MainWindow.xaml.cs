@@ -692,6 +692,21 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // Voice command check: ONLY on regular Parakeet speech keybind!
+            // Raw hotkey always qualifies, or primary hotkey when AI cleanup is disabled.
+            bool isRegularSpeechKeybind = job.Kind == HotkeyKind.Raw || !_settings.AiEnabled;
+            if (_settings.VoiceCommandsEnabled && isRegularSpeechKeybind)
+            {
+                if (VoiceCommandService.TryMatchCommand(text, out var command) && command is not null)
+                {
+                    TranscriptBox.Text = $"[Voice Command: Launch {command.MatchedName}]";
+                    SetQueueStatus($"Launching {command.MatchedName}…");
+                    VoiceCommandService.ExecuteCommand(command);
+                    SetQueueStatus($"Launched {command.MatchedName}");
+                    return;
+                }
+            }
+
             // The raw hotkey deliberately skips cleanup, so what Parakeet heard
             // is what gets typed.
             if (_settings.AiEnabled && job.Kind != HotkeyKind.Raw)
@@ -759,6 +774,7 @@ public partial class MainWindow : Window
         _audio.PreferredDeviceName = _settings.Microphone;
         KeepRunningInTrayCheck.IsChecked = _settings.KeepRunningInTray;
         MuteSoundCuesCheck.IsChecked = _settings.SoundCuesMuted;
+        VoiceCommandsCheck.IsChecked = _settings.VoiceCommandsEnabled;
         _tones.Muted = _settings.SoundCuesMuted;
         // The registry is the truth for autostart: the saved setting could be
         // stale if the entry was removed outside ShadowWhispr.
@@ -1256,6 +1272,7 @@ public partial class MainWindow : Window
         _settings.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
         _settings.StartMinimized = StartMinimizedCheck.IsChecked == true;
         _settings.SoundCuesMuted = MuteSoundCuesCheck.IsChecked == true;
+        _settings.VoiceCommandsEnabled = VoiceCommandsCheck.IsChecked == true;
         _tones.Muted = _settings.SoundCuesMuted;
         _settings.AiEnabled = AiEnabledCheck.IsChecked == true;
         _settings.Provider = GetComboText(ProviderCombo) ?? AiProviderService.Claude;
@@ -1282,6 +1299,14 @@ public partial class MainWindow : Window
             ? new AppSettings().CustomInstruction
             : InstructionBox.Text.Trim();
         _settings.AutoUpdateEnabled = AutoUpdateCheck.IsChecked == true;
+    }
+
+    private void VoiceCommandsToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_uiReady) return;
+        ReadUiIntoSettings();
+        QueueAutoSave();
+        AppLog.Write($"Voice commands enabled set to {_settings.VoiceCommandsEnabled}");
     }
 
     // --- Automatic saving -------------------------------------------------

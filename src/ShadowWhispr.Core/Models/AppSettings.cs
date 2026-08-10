@@ -162,4 +162,11 @@ public sealed class AppSettings
     /// Off by default, so the sounds keep working unless they are turned off.
     /// </summary>
     public bool SoundCuesMuted { get; set; }
+
+    /// <summary>
+    /// Enables voice commands to launch terminal CLI tools (e.g. AGY, OpenCode, Codex, Claude, Grok)
+    /// when using the raw speech keybind on Windows.
+    /// Off by default.
+    /// </summary>
+    public bool VoiceCommandsEnabled { get; set; }
 }
