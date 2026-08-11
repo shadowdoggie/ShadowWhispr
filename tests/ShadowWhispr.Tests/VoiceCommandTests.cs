@@ -26,6 +26,8 @@ public sealed class VoiceCommandTests
     [InlineData("claude code", "Claude Code", "claude")]
     [InlineData("open cloud coat", "Claude Code", "claude")]
     [InlineData("open grok", "Grok Build", "grok")]
+    [InlineData("Open Groc.", "Grok Build", "grok")]
+    [InlineData("Open Grock build.", "Grok Build", "grok")]
     [InlineData("grog build", "Grok Build", "grok")]
     [InlineData("open frog build", "Grok Build", "grok")]
     public void VoiceCommandsMatchPhoneticVariations(string input, string expectedName, string expectedExe)
