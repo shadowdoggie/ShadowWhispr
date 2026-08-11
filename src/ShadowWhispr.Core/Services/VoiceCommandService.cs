@@ -20,14 +20,14 @@ public static class VoiceCommandService
 
     private static readonly string[] OpenCodeTriggers =
     [
-        "open code", "opencode", "open coat", "open codecs", "open opencode", "open open code", "open open coat",
+        "open code", "opencode", "open coat", "open opencode", "open open code", "open open coat",
         "open code cli", "open opencode cli", "open open code cli", "open code terminal",
         "open opencode terminal", "open open code terminal"
     ];
 
     private static readonly string[] CodexTriggers =
     [
-        "open codex", "open codec", "open codex cli", "open codec cli", "open code sec",
+        "open codex", "open codec", "open codecs", "open codex cli", "open codec cli", "open code sec",
         "open code sec cli", "codec cli", "codex cli", "open codec terminal", "open codex terminal"
     ];
 

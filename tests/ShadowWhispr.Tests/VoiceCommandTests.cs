@@ -15,7 +15,7 @@ public sealed class VoiceCommandTests
     [InlineData("open code", "OpenCode", "opencode")]
     [InlineData("opencode", "OpenCode", "opencode")]
     [InlineData("open coat", "OpenCode", "opencode")]
-    [InlineData("Open codecs.", "OpenCode", "opencode")]
+    [InlineData("Open codecs.", "Codex CLI", "codex")]
     [InlineData("open open code", "OpenCode", "opencode")]
     [InlineData("open codex", "Codex CLI", "codex")]
     [InlineData("open codec", "Codex CLI", "codex")]
