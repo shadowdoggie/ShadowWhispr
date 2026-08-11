@@ -39,9 +39,10 @@ public static class VoiceCommandService
 
     private static readonly string[] GrokTriggers =
     [
-        "open grok", "open groc", "open grock", "open grok build", "open groc build", "open grock build",
-        "open grog build", "open frog build", "grok build", "groc build", "grock build", "grog build",
-        "open grok cli", "open grok terminal"
+        "open grok", "open groc", "open grock", "open groke", "open grog", "open grogue", "open croc",
+        "open clock", "open quok", "open grok build", "open groc build", "open grock build", "open grog build",
+        "open frog build", "grok build", "groc build", "grock build", "grog build", "open grok cli",
+        "open grok terminal"
     ];
 
     public static bool TryMatchCommand(string? transcript, out VoiceCommandResult? result)

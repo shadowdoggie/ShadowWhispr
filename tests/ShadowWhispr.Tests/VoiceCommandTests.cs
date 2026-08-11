@@ -28,6 +28,12 @@ public sealed class VoiceCommandTests
     [InlineData("open grok", "Grok Build", "grok")]
     [InlineData("Open Groc.", "Grok Build", "grok")]
     [InlineData("Open Grock build.", "Grok Build", "grok")]
+    [InlineData("Open Groke.", "Grok Build", "grok")]
+    [InlineData("Open Grogue.", "Grok Build", "grok")]
+    [InlineData("Open quok.", "Grok Build", "grok")]
+    [InlineData("Open Grog.", "Grok Build", "grok")]
+    [InlineData("Open croc.", "Grok Build", "grok")]
+    [InlineData("Open clock.", "Grok Build", "grok")]
     [InlineData("grog build", "Grok Build", "grok")]
     [InlineData("open frog build", "Grok Build", "grok")]
     public void VoiceCommandsMatchPhoneticVariations(string input, string expectedName, string expectedExe)
