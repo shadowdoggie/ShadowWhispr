@@ -407,65 +407,35 @@ public sealed partial class AiProviderService
             AppLog.Write($"Failed to discover Gemini models: {exception.Message}");
         }
 
-        var grouped = new Dictionary<string, (string DisplayName, List<string> Efforts)>(StringComparer.OrdinalIgnoreCase);
-
-        if (result is not null && result.ExitCode == 0)
+        if (result is null || result.ExitCode != 0)
         {
-            foreach (var rawLine in SplitLines(result.StandardOutput))
-            {
-                var line = rawLine.Trim();
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    continue;
-                }
-
-                if (line.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase) ||
-                    line.StartsWith("Gemini ", StringComparison.OrdinalIgnoreCase))
-                {
-                    string id;
-                    string displayName;
-                    string? effort = null;
-
-                    var match = ModelWithEffortRegex().Match(line);
-                    if (match.Success)
-                    {
-                        var modelName = match.Groups["model"].Value.Trim();
-                        effort = match.Groups["effort"].Value.ToLowerInvariant();
-                        id = FormatGeminiSlug(modelName);
-                        displayName = FormatGeminiDisplayName(modelName);
-                    }
-                    else
-                    {
-                        var parts = line.Split('-');
-                        var lastPart = parts[^1].ToLowerInvariant();
-                        if (parts.Length > 2 && ReasoningOrder.Contains(lastPart))
-                        {
-                            effort = lastPart;
-                            var baseSlug = string.Join('-', parts[..^1]);
-                            id = baseSlug;
-                            displayName = FormatGeminiDisplayName(baseSlug);
-                        }
-                        else
-                        {
-                            id = FormatGeminiSlug(line);
-                            displayName = FormatGeminiDisplayName(line);
-                        }
-                    }
-
-                    if (!grouped.TryGetValue(id, out var entry))
-                    {
-                        entry = (displayName, []);
-                        grouped[id] = entry;
-                    }
-
-                    AddUnique(entry.Efforts, effort);
-                }
-            }
+            AppLog.Write($"Gemini model discovery failed: agy exit code {result?.ExitCode.ToString() ?? "unknown"}; using defaults");
+            return DefaultGeminiModels;
         }
 
-        if (grouped.Count == 0)
+        var models = ParseGeminiModelLines(result.StandardOutput);
+        AppLog.Write($"Gemini model discovery succeeded: agy returned {models.Count} unique Gemini models");
+        return models.Count == 0 ? DefaultGeminiModels : models;
+    }
+
+    internal static IReadOnlyList<AiModelOption> ParseGeminiModelLines(string output)
+    {
+        var grouped = new Dictionary<string, (string DisplayName, List<string> Efforts)>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var rawLine in SplitLines(output))
         {
-            return DefaultGeminiModels;
+            if (!TryParseGeminiModelLine(rawLine, out var id, out var displayName, out var effort))
+            {
+                continue;
+            }
+
+            if (!grouped.TryGetValue(id, out var entry))
+            {
+                entry = (displayName, []);
+                grouped[id] = entry;
+            }
+
+            AddUnique(entry.Efforts, effort);
         }
 
         return grouped
@@ -487,6 +457,76 @@ public sealed partial class AiProviderService
             })
             .OrderBy(model => model.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static bool TryParseGeminiModelLine(
+        string rawLine,
+        out string id,
+        out string displayName,
+        out string? effort)
+    {
+        id = string.Empty;
+        displayName = string.Empty;
+        effort = null;
+
+        var line = rawLine.Trim();
+        if (line.Length == 0)
+        {
+            return false;
+        }
+
+        // Current agy output is one tab-separated record per model/effort:
+        // gemini-3.6-flash-high<TAB>Gemini 3.6 Flash (High)
+        var tabIndex = line.IndexOf('\t');
+        if (tabIndex > 0)
+        {
+            var modelId = line[..tabIndex].Trim();
+            if (!modelId.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            (id, effort) = NormalizeGeminiId(modelId);
+            var suppliedDisplayName = line[(tabIndex + 1)..].Trim();
+            var displayMatch = ModelWithEffortRegex().Match(suppliedDisplayName);
+            displayName = displayMatch.Success
+                ? displayMatch.Groups["model"].Value.Trim()
+                : FormatGeminiDisplayName(id);
+            return true;
+        }
+
+        if (!line.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase) &&
+            !line.StartsWith("Gemini ", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var match = ModelWithEffortRegex().Match(line);
+        if (match.Success)
+        {
+            var modelName = match.Groups["model"].Value.Trim();
+            id = FormatGeminiSlug(modelName);
+            displayName = FormatGeminiDisplayName(modelName);
+            effort = match.Groups["effort"].Value.ToLowerInvariant();
+            return true;
+        }
+
+        (id, effort) = NormalizeGeminiId(line);
+        displayName = FormatGeminiDisplayName(id);
+        return true;
+    }
+
+    private static (string Id, string? Effort) NormalizeGeminiId(string modelId)
+    {
+        var normalized = FormatGeminiSlug(modelId);
+        var parts = normalized.Split('-');
+        var lastPart = parts[^1];
+        if (parts.Length > 2 && ReasoningOrder.Contains(lastPart, StringComparer.OrdinalIgnoreCase))
+        {
+            return (string.Join('-', parts[..^1]), lastPart);
+        }
+
+        return (normalized, null);
     }
 
     private static string FormatGeminiDisplayName(string text)

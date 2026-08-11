@@ -7,6 +7,27 @@ public sealed class AiProviderDiscoveryTests
 {
     private readonly AiProviderService _service = new(TimeSpan.FromSeconds(60));
 
+    [Fact]
+    public void ParsesTabbedAgyOutputAsUniqueModelsWithReasoningLevels()
+    {
+        const string output =
+            "gemini-3.6-flash-high\tGemini 3.6 Flash (High)\n" +
+            "gemini-3.6-flash-medium\tGemini 3.6 Flash (Medium)\n" +
+            "gemini-3.6-flash-low\tGemini 3.6 Flash (Low)\n" +
+            "gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n" +
+            "gemini-3.1-pro-low\tGemini 3.1 Pro (Low)\n" +
+            "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)";
+
+        var models = AiProviderService.ParseGeminiModelLines(output);
+
+        Assert.Equal(2, models.Count);
+        var flash = Assert.Single(models, model => model.Id == "gemini-3.6-flash");
+        Assert.Equal("Gemini 3.6 Flash", flash.DisplayName);
+        Assert.Equal(["low", "medium", "high"], flash.ReasoningLevels);
+        Assert.Equal("high", flash.DefaultReasoningLevel);
+        Assert.DoesNotContain(models, model => model.Id.Contains('\t'));
+    }
+
     [Theory]
     [InlineData(AiProviderService.Claude, 4)]
     [InlineData(AiProviderService.Codex, 1)]
