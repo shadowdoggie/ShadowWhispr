@@ -72,13 +72,43 @@ def decode_text(processor: Any, sequences: Any) -> str:
     return decoded.strip()
 
 
+# A long recording makes PyTorch's CUDA caching allocator hold gigabytes of
+# segments it freed but keeps for reuse, and nothing returns them to the driver
+# while the process stays alive. Releasing everything after every short request
+# would only make the next one re-allocate, so release only when the unused
+# cache is clearly excessive: far above the few tens of MiB a dictation-sized
+# request leaves behind, far below the multi-GB tail an 870 s recording
+# produced.
+GPU_CACHE_RELEASE_THRESHOLD_BYTES = 512 * 1024 * 1024
+
+
+def release_cached_gpu_memory() -> None:
+    """Return an excessive amount of unused CUDA memory to the driver.
+
+    Only cached blocks the allocator is holding for reuse are dropped, so the
+    loaded model and its weights stay resident. Failures are reported on stderr
+    and never raised: this runs while a result or its error is being returned,
+    and releasing memory must not replace that outcome.
+    """
+    try:
+        if not torch.cuda.is_available():
+            return
+        unused = torch.cuda.memory_reserved() - torch.cuda.memory_allocated()
+        if unused < GPU_CACHE_RELEASE_THRESHOLD_BYTES:
+            return
+        torch.cuda.empty_cache()
+    except Exception as exc:
+        print(f"GPU memory release failed: {exc}", file=sys.stderr, flush=True)
+
+
 def transcribe(model: Any, processor: Any, audio_path: Path) -> str:
     target_rate = int(processor.feature_extractor.sampling_rate)
-    waveform = load_audio(audio_path, target_rate)
     inputs = None
     output = None
+    waveform = None
 
     try:
+        waveform = load_audio(audio_path, target_rate)
         inputs = processor(
             audio=waveform,
             sampling_rate=target_rate,
@@ -92,8 +122,10 @@ def transcribe(model: Any, processor: Any, audio_path: Path) -> str:
         return decode_text(processor, output.sequences)
     finally:
         # Do not keep the recording or its derived tensors between requests.
-        waveform.fill(0)
+        if waveform is not None:
+            waveform.fill(0)
         del waveform, inputs, output
+        release_cached_gpu_memory()
 
 
 def model_files_present() -> bool:
@@ -182,6 +214,8 @@ def main() -> int:
             continue
 
         request_id: Any = None
+        error: str | None = None
+
         try:
             request = json.loads(raw_line)
             if not isinstance(request, dict):
@@ -196,9 +230,19 @@ def main() -> int:
 
             text = transcribe(model, processor, Path(audio_path_value))
             emit({"id": request_id, "text": text, "error": None})
+            continue
         except Exception as exc:
             print(f"Transcription failed: {exc}", file=sys.stderr, flush=True)
-            emit({"id": request_id, "text": "", "error": str(exc)})
+            error = str(exc)
+
+        # The handler above has ended, so Python has already dropped the
+        # exception and its traceback. A failing frame can hold GPU tensors of
+        # its own (a bad input, an out-of-memory generate), and they only reach
+        # the allocator's cache once that traceback dies - after transcribe's own
+        # finally ran. Releasing here keeps the leftover of a failed request from
+        # sitting in the cache until the next successful one.
+        release_cached_gpu_memory()
+        emit({"id": request_id, "text": "", "error": error})
 
     return 0
 

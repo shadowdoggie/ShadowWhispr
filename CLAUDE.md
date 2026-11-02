@@ -114,6 +114,9 @@ output. Linux speech setup logs to `~/.local/share/ShadowWhispr/setup-log.txt`.
 in, and fail in WSL-launched runs — CI excludes them with
 `--filter "FullyQualifiedName!~AiProviderDiscoveryTests"`.
 
+The speech worker's own tests are stdlib `unittest` and stub torch, so they need
+no GPU, model or venv: `python -m unittest discover -s tests/python -v`.
+
 ## Releases
 
 Publishing a GitHub release triggers `.github/workflows/release.yml`, which builds
